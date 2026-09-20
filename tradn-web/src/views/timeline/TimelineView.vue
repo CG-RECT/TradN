@@ -178,6 +178,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "v
 import dayjs from "dayjs";
 import { useRouter } from "vue-router";
 import http from "../../api/http";
+import { isTimelineInteractiveTarget } from "../../utils/timelineInteraction";
 
 const INITIAL_SIDE_DAYS = 10;
 const EDGE_LOAD_DAYS = 10;
@@ -295,6 +296,8 @@ function handleScroll() {
 
 function startDrag(event: PointerEvent) {
   if (!shell.value || event.button !== 0) return;
+  // 按钮和表单控件需要保留原生点击行为，否则 setPointerCapture 会把 click 改投给外层容器。
+  if (isTimelineInteractiveTarget(event.target)) return;
   dragging.value = true;
   dragMoved = false;
   dragStartX = event.clientX;
