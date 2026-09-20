@@ -56,6 +56,8 @@ public class TimelineService {
     @Transactional
     public DailyTimeline save(LocalDate date, TimelineCommand c) {
         DailyTimeline row = find(date);
+        Set<Long> previousNoteIds =
+                row == null ? Collections.<Long>emptySet() : currentNoteIds(row.getId());
         if (row == null) {
             row = new DailyTimeline();
             row.setUserId(SecurityUtils.userId());
@@ -69,7 +71,8 @@ public class TimelineService {
             if (mapper.updateById(row) == 0) throw new BizException(409, "时间线已被其他页面修改");
         }
         replaceNotes(row.getId(), c.getNoteIds());
-        syncSummary(row);
+        // 只有新增关联笔记时才生成或更新黄金每日复盘，单独修改文字/图片不再制造笔记。
+        if (hasNewLinkedNote(previousNoteIds, c.getNoteIds())) syncSummary(row);
         return row;
     }
 
@@ -114,6 +117,25 @@ public class TimelineService {
                     timelineId,
                     noteId);
         }
+    }
+
+    /** 查询保存前已关联的笔记，用于判断本次是否真的新增了笔记。 */
+    private Set<Long> currentNoteIds(long timelineId) {
+        List<Long> ids =
+                jdbc.query(
+                        "SELECT note_id FROM timeline_note_relation WHERE timeline_id=?",
+                        (resultSet, rowNum) -> resultSet.getLong("note_id"),
+                        timelineId);
+        return new HashSet<Long>(ids);
+    }
+
+    /** 只有新增关系才触发每日复盘笔记同步；重复保存或仅改文字不会触发。 */
+    static boolean hasNewLinkedNote(Set<Long> previousNoteIds, List<Long> currentNoteIds) {
+        if (currentNoteIds == null || currentNoteIds.isEmpty()) return false;
+        for (Long noteId : currentNoteIds) {
+            if (noteId != null && !previousNoteIds.contains(noteId)) return true;
+        }
+        return false;
     }
     // 只重建 generatedContent，manualContent 始终留给用户编辑；解除同步后不再覆盖自动区。
     // tradn-file:// 保存稳定文件 ID，避免把 15 分钟有效的 MinIO 签名地址永久写入 Markdown。
