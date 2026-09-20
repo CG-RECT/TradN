@@ -1,6 +1,6 @@
 <template>
   <a-layout class="shell">
-    <a-layout-sider v-model:collapsed="collapsed" collapsible theme="dark">
+    <a-layout-sider v-model:collapsed="collapsed" :trigger="null" theme="dark">
       <div class="logo">{{ collapsed ? "TN" : "TradN" }}</div>
       <a-menu
         theme="dark"
@@ -34,12 +34,32 @@
           </a-menu-item>
         </template>
       </a-menu>
+      <button class="sidebar-toggle" type="button" :title="collapsed ? '展开菜单' : '收起菜单'" @click="collapsed = !collapsed">
+        <MenuUnfoldOutlined v-if="collapsed" />
+        <MenuFoldOutlined v-else />
+        <span v-if="!collapsed">收起菜单</span>
+      </button>
     </a-layout-sider>
 
     <a-layout>
       <a-layout-header class="header">
-        <span class="header-title">黄金交易复盘工作台</span>
-        <a-dropdown>
+        <div class="header-title-wrap">
+          <span class="header-title">黄金交易复盘工作台</span>
+          <span class="header-subtitle">记录每一次判断，复盘每一次交易</span>
+        </div>
+        <div class="header-tools">
+          <a-popover placement="bottomRight" trigger="click">
+            <template #content>
+              <div class="theme-panel">
+                <div class="theme-title">界面主题</div>
+                <button v-for="item in themes" :key="item.key" type="button" class="theme-option" :class="{ active: themeKey === item.key }" @click="applyTheme(item.key)">
+                  <i :style="{ background: item.color }" />{{ item.label }}
+                </button>
+              </div>
+            </template>
+            <a-button type="text" class="theme-trigger"><BgColorsOutlined /> 主题</a-button>
+          </a-popover>
+          <a-dropdown>
           <span class="user">
             {{ auth.profile?.nickname || auth.profile?.username }} ▾
           </span>
@@ -49,7 +69,14 @@
             </a-menu>
           </template>
         </a-dropdown>
+        </div>
       </a-layout-header>
+      <div class="breadcrumb-bar">
+        <a-breadcrumb>
+          <a-breadcrumb-item>工作台</a-breadcrumb-item>
+          <a-breadcrumb-item>{{ currentLabel }}</a-breadcrumb-item>
+        </a-breadcrumb>
+      </div>
       <a-layout-content>
         <a-spin v-if="sessionLoading" class="session-state" tip="正在验证登录状态…" />
         <a-result v-else-if="sessionError" status="warning" title="登录信息加载失败">
@@ -69,6 +96,9 @@ import { useRoute, useRouter } from "vue-router";
 import {
   BookOutlined,
   CalendarOutlined,
+  BgColorsOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   LineChartOutlined,
   SettingOutlined,
   SwapOutlined,
@@ -90,6 +120,31 @@ const route = useRoute();
 const router = useRouter();
 const sessionLoading = ref(true);
 const sessionError = ref(false);
+const themeKey = ref(localStorage.getItem("tradn-theme") || "ocean");
+const themes = [
+  { key: "ocean", label: "海洋蓝", color: "#1677ff" },
+  { key: "forest", label: "森林绿", color: "#248a5a" },
+  { key: "violet", label: "雅致紫", color: "#7251b5" },
+  { key: "sunset", label: "暖阳橙", color: "#d97732" },
+];
+
+const routeLabels: Record<string, string> = {
+  "/trades": "开仓记录",
+  "/notes": "笔记",
+  "/timeline": "黄金时间线",
+  "/statistics": "盈亏统计",
+  "/system": "系统设置",
+};
+const currentLabel = computed(() => {
+  const key = Object.keys(routeLabels).find((path) => route.path.startsWith(path));
+  return key ? routeLabels[key] : "工作台";
+});
+
+function applyTheme(key: string) {
+  themeKey.value = key;
+  localStorage.setItem("tradn-theme", key);
+  document.documentElement.dataset.theme = key;
+}
 
 const items: NavigationItem[] = [
   {
@@ -244,7 +299,10 @@ async function loadSession() {
   }
 }
 
-onMounted(loadSession);
+onMounted(() => {
+  applyTheme(themeKey.value);
+  loadSession();
+});
 </script>
 
 <style scoped>
@@ -252,6 +310,10 @@ onMounted(loadSession);
   display: block;
   margin: 80px auto;
 }
+:deep(.ant-layout-sider) { background: var(--tradn-sidebar) !important; }
+:deep(.ant-menu-dark) { background: var(--tradn-sidebar); }
+:deep(.ant-menu-dark .ant-menu-item-selected) { background: var(--tradn-primary) !important; }
+:deep(.ant-menu-dark .ant-menu-item:hover), :deep(.ant-menu-dark .ant-menu-submenu-title:hover) { background: var(--tradn-sidebar-hover) !important; }
 
 .shell {
   min-height: 100%;
@@ -269,12 +331,26 @@ onMounted(loadSession);
 .header {
   height: 64px;
   background: #fff;
-  padding: 0 24px;
+  padding: 0 28px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 1px 5px #00000010;
+  border-bottom: 1px solid var(--tradn-border);
 }
+
+.header-title-wrap { display: flex; align-items: baseline; gap: 14px; }
+.header-subtitle { color: #8a94a6; font-size: 12px; }
+.header-tools { display: flex; align-items: center; gap: 10px; }
+.theme-trigger { color: #526173; }
+.sidebar-toggle { position: absolute; left: 12px; right: 12px; bottom: 14px; height: 36px; border: 0; border-radius: 8px; color: #dce9f7; background: #ffffff12; cursor: pointer; text-align: left; padding: 0 12px; }
+.sidebar-toggle:hover { background: #ffffff24; }
+.sidebar-toggle span { margin-left: 10px; font-size: 12px; }
+.theme-panel { min-width: 150px; }
+.theme-title { color: #8c8c8c; font-size: 12px; margin-bottom: 8px; }
+.theme-option { display: block; width: 100%; padding: 7px 4px; border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: 5px; }
+.theme-option:hover, .theme-option.active { background: #f0f5ff; }
+.theme-option i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
+.breadcrumb-bar { height: 42px; padding: 0 28px; display: flex; align-items: center; background: var(--tradn-breadcrumb); border-bottom: 1px solid var(--tradn-border); }
 
 .header-title {
   font-size: 17px;
