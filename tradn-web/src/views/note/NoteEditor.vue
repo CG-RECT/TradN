@@ -40,13 +40,30 @@
         </a-col>
         <a-col :span="24">
           <a-form-item label="标签">
-            <a-input
-              v-model:value="form.tagText"
+            <a-select
+              v-model:value="form.tagNames"
+              class="full-width note-tag-input"
+              mode="tags"
               :disabled="isReadOnly"
-              placeholder="多个标签请使用英文分号 ; 分隔，例如：趋势;机构;复盘"
-            />
+              :open="false"
+              :show-arrow="false"
+              :token-separators="[';', '；']"
+              placeholder="输入标签后按英文分号 ; 立即生成标签"
+            >
+              <template #tagRender="{ label, closable, onClose }">
+                <a-tag
+                  class="note-tag"
+                  :color="tagColor(String(label))"
+                  :closable="closable && !isReadOnly"
+                  @mousedown.prevent
+                  @close="onClose"
+                >
+                  {{ label }}
+                </a-tag>
+              </template>
+            </a-select>
             <div v-if="!isReadOnly" class="tag-hint muted">
-              保存时会自动创建不存在的标签；展示时每个标签使用独立颜色。
+              输入英文分号后立即生成彩色标签；将鼠标移到标签上可点击 × 删除。
             </div>
           </a-form-item>
         </a-col>
@@ -114,34 +131,45 @@ async function load() {
   Object.assign(form, note.value, {
     businessDate: note.value.businessDate ? dayjs(note.value.businessDate) : null,
     manualContent: note.value.manualContent || "",
-    tagText: (note.value.tags || []).map((tag: any) => tag.tagName).join(";"),
+    tagNames: (note.value.tags || []).map((tag: any) => tag.tagName),
   });
 }
 
-function splitTagNames(value: string) {
+function normalizeTagNames(values: string[]) {
   return Array.from(
     new Set(
-      value
-        .split(/[;；]/)
+      values
+        .flatMap((value) => value.split(/[;；]/))
         .map((name) => name.trim())
         .filter(Boolean),
     ),
   );
 }
 
-async function resolveTagIds(value: string) {
+async function resolveTagIds(values: string[]) {
   const ids: string[] = [];
-  for (const tagName of splitTagNames(value)) {
+  for (const tagName of normalizeTagNames(values)) {
     const tag: any = await http.post("/notes/tags", { tagName });
     ids.push(String(tag.id));
   }
   return ids;
 }
 
+const tagColors = ["blue", "cyan", "green", "gold", "orange", "purple", "magenta"];
+
+/** 根据标签文字稳定分配颜色，确保同名标签在不同笔记中保持一致。 */
+function tagColor(tagName: string) {
+  const hash = Array.from(tagName).reduce(
+    (value, character) => value + (character.codePointAt(0) || 0),
+    0,
+  );
+  return tagColors[hash % tagColors.length];
+}
+
 // 自动生成区由时间线维护，页面仅提交人工编辑区和允许修改的元数据。
 async function save() {
-  const tagIds = await resolveTagIds(form.tagText || "");
-  const { tagText: _tagText, ...formData } = form;
+  const tagIds = await resolveTagIds(form.tagNames || []);
+  const { tagNames: _tagNames, ...formData } = form;
   const data = {
     ...formData,
     tagIds,
@@ -236,5 +264,23 @@ onMounted(async () => {
 .tag-hint {
   margin-top: 8px;
   font-size: 12px;
+}
+
+.note-tag-input :deep(.ant-select-selector) {
+  min-height: 34px;
+  align-items: center;
+}
+
+.note-tag {
+  margin-inline-end: 4px;
+}
+
+.note-tag :deep(.ant-tag-close-icon) {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.note-tag:hover :deep(.ant-tag-close-icon) {
+  opacity: 1;
 }
 </style>

@@ -43,7 +43,7 @@ const collapsed = ref(true);
 <style scoped>
 .search-panel {
   margin-bottom: 14px;
-  padding: 16px 18px 0;
+  padding: 12px 18px;
   border: 1px solid var(--tradn-border);
   border-radius: 8px;
   background: #fff;
@@ -86,8 +86,8 @@ const collapsed = ref(true);
 
 .search-toggle {
   display: block;
-  margin: 8px auto 0;
-  padding: 3px 10px 7px;
+  margin: 8px auto -6px;
+  padding: 3px 10px;
   border: 0;
   color: var(--tradn-primary);
   background: transparent;
