@@ -16,7 +16,7 @@
 | 模块 | 页面/入口 | 主要能力 |
 | --- | --- | --- |
 | 开仓记录 | `/trades` | 开仓前 13 题、开仓后 2 题；查看/编辑分离；补充开平仓价格、手数和盈亏 |
-| 笔记 | `/notes` | Markdown 增删查改、自动汇总笔记、导出 Markdown、自动同步解除 |
+| 笔记 | `/notes` | Markdown 增删查改、自动汇总笔记、导出 Markdown、自动同步解除、自定义标签和标签筛选 |
 | 黄金时间线 | `/timeline` | 日期横线、默认今天前后 10 天；拖动/缩放/边缘增量加载；每天添加文字、图片、已有/新建笔记 |
 | 盈亏统计 | `/statistics` | 按日期范围统计已平仓交易的实现盈亏 |
 | 系统设置 | `/system/*` | 人员、基础、审计三组；列表查询/重置、RBAC、字典解析、缓存、调度和日志 |
@@ -64,7 +64,7 @@ erDiagram
 - 系统：`sys_dict_type`、`sys_dict_item`、`sys_parameter`、`sys_job`、`sys_job_log`、`sys_cache_namespace`。
 - 审计：`sys_login_audit`、`sys_access_audit`、`sys_exception_log`。
 - 交易：`trade_record`、`questionnaire_template`、`questionnaire_question`、`trade_questionnaire_answer`。
-- 笔记：`note`、`note_tag`、`note_tag_relation`。
+- 笔记：`note`、`note_tag`、`note_tag_relation`；其中笔记和标签通过关系表多对多关联。
 - 时间线/文件：`gold_daily_timeline`、`timeline_note_relation`、`file_object`、`business_file_relation`。
 
 业务表均通过 `user_id` 做数据隔离；时间线每天最多一条记录，汇总笔记标题按 `黄金每日复盘 - yyyy-MM-dd` 生成，图片只保存 MinIO 对象键，页面使用短时预签名地址。

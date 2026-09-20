@@ -1,25 +1,24 @@
 <template>
   <div class="page trade-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">开仓记录</div>
-        <div class="muted">开仓前检查、持仓复盘与实际盈亏</div>
-      </div>
-    </div>
-    <div class="page-actions"><a-button type="primary" @click="create">新建开仓问卷</a-button></div>
-    <div class="content-card">
-      <div class="toolbar">
+    <SearchPanel @search="search" @reset="reset">
+      <div class="search-field">
+        <span class="search-field-label">状态</span>
         <a-select
           v-model:value="status"
           allow-clear
           placeholder="全部状态"
-          style="width: 160px"
+          style="width: 180px"
           :options="statusSelectOptions"
-          @change="search"
         />
       </div>
-      <a-table
-        style="margin-top: 16px"
+    </SearchPanel>
+    <div class="content-card">
+      <ListSectionHeader title="开仓记录" subtitle="开仓前检查、持仓复盘与实际盈亏">
+        <template #actions>
+          <a-button type="primary" @click="create">新建开仓问卷</a-button>
+        </template>
+      </ListSectionHeader>
+      <StandardTable
         :data-source="rows"
         :columns="columns"
         :loading="loading"
@@ -48,7 +47,7 @@
             </a-space>
           </template>
         </template>
-      </a-table>
+      </StandardTable>
     </div>
   </div>
 </template>
@@ -64,6 +63,9 @@ import {
   toSelectOptions,
 } from "../../api/dictionary";
 import { formatDateTime } from "../../utils/format";
+import SearchPanel from "../../components/list/SearchPanel.vue";
+import StandardTable from "../../components/list/StandardTable.vue";
+import ListSectionHeader from "../../components/list/ListSectionHeader.vue";
 
 const router = useRouter();
 const rows = ref<any[]>([]);
@@ -104,6 +106,11 @@ async function load() {
 function search() {
   pagination.current = 1;
   load();
+}
+
+function reset() {
+  status.value = undefined;
+  search();
 }
 
 function change(pager: any) {

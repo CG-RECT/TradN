@@ -1,22 +1,12 @@
 <template>
-  <div v-if="note" class="page note-page">
-    <div class="page-header">
-      <div>
-        <a @click="back">← 返回笔记</a>
-        <div class="page-title">
-          {{ isReadOnly ? "查看" : isNew ? "新建" : "编辑" }}笔记 ·
-          {{ form.title || "未命名笔记" }}
-        </div>
-      </div>
-      <a-button @click="back">关闭</a-button>
-    </div>
-
-    <div class="page-actions">
-      <a-button v-if="!isNew && !isReadOnly && note.syncStatus === 'AUTO'" danger @click="detach">解除自动同步</a-button>
-      <a-button v-if="!isNew" @click="download">导出 Markdown</a-button>
-      <a-button v-if="isReadOnly" type="primary" @click="switchToEdit">进入编辑</a-button>
-      <template v-else><a-button @click="back">取消</a-button><a-button type="primary" @click="save">保存</a-button></template>
-    </div>
+  <EditorPageLayout
+    v-if="note"
+    class="note-page"
+    :title="`${isReadOnly ? '查看' : isNew ? '新建' : '编辑'}笔记 · ${form.title || '未命名笔记'}`"
+  >
+    <template #header-extra>
+      <a-tag v-if="!isNew && note.syncStatus === 'AUTO'" color="blue">自动同步</a-tag>
+    </template>
 
     <div class="content-card">
       <a-row :gutter="16">
@@ -48,6 +38,26 @@
             <a-input v-model:value="form.summary" :disabled="isReadOnly" />
           </a-form-item>
         </a-col>
+        <a-col :span="24">
+          <a-form-item label="标签">
+            <a-select
+              v-model:value="form.tagIds"
+              mode="multiple"
+              :disabled="isReadOnly"
+              :options="tagOptions"
+              placeholder="选择或创建标签"
+            />
+            <div v-if="!isReadOnly" class="tag-create-row">
+              <a-input
+                v-model:value="newTagName"
+                placeholder="输入新标签名称"
+                style="max-width: 260px"
+                @pressEnter="createTag"
+              />
+              <a-button :loading="tagCreating" @click="createTag">新增标签</a-button>
+            </div>
+          </a-form-item>
+        </a-col>
       </a-row>
 
       <template v-if="note.generatedContent">
@@ -65,7 +75,18 @@
         @on-upload-img="uploadImages"
       />
     </div>
-  </div>
+
+    <template #actions>
+      <a-button @click="back">关闭</a-button>
+      <a-button v-if="!isNew && !isReadOnly && note.syncStatus === 'AUTO'" danger @click="detach">解除自动同步</a-button>
+      <a-button v-if="!isNew" @click="download">导出 Markdown</a-button>
+      <a-button v-if="isReadOnly" type="primary" @click="switchToEdit">进入编辑</a-button>
+      <template v-else>
+        <a-button @click="back">取消</a-button>
+        <a-button type="primary" @click="save">保存</a-button>
+      </template>
+    </template>
+  </EditorPageLayout>
 </template>
 
 <script setup lang="ts">
@@ -76,6 +97,7 @@ import dayjs from "dayjs";
 import { useRoute, useRouter } from "vue-router";
 import http from "../../api/http";
 import { loadDictionary, toSelectOptions } from "../../api/dictionary";
+import EditorPageLayout from "../../components/editor/EditorPageLayout.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -84,6 +106,12 @@ const isReadOnly = computed(() => route.query.mode === "view");
 const note = ref<any>();
 const form = reactive<any>({});
 const types = ref<any[]>([]);
+const tags = ref<any[]>([]);
+const newTagName = ref("");
+const tagCreating = ref(false);
+const tagOptions = computed(() =>
+  tags.value.map((tag) => ({ value: String(tag.id), label: tag.tagName })),
+);
 
 async function load() {
   if (isNew.value) {
@@ -93,6 +121,7 @@ async function load() {
       generatedContent: "",
       syncStatus: "NONE",
       version: 0,
+      tagIds: [],
     };
   } else {
     note.value = await http.get(`/notes/${route.params.id}`);
@@ -100,6 +129,7 @@ async function load() {
   Object.assign(form, note.value, {
     businessDate: note.value.businessDate ? dayjs(note.value.businessDate) : null,
     manualContent: note.value.manualContent || "",
+    tagIds: (note.value.tags || []).map((tag: any) => String(tag.id)),
   });
 }
 
@@ -120,6 +150,21 @@ async function save() {
   await http.put(`/notes/${note.value.id}`, data);
   message.success("笔记已保存");
   await load();
+}
+
+async function createTag() {
+  const tagName = newTagName.value.trim();
+  if (!tagName) return;
+  tagCreating.value = true;
+  try {
+    const tag: any = await http.post("/notes/tags", { tagName });
+    tags.value = [...tags.value.filter((item) => item.id !== tag.id), tag];
+    if (!form.tagIds.includes(String(tag.id))) form.tagIds.push(String(tag.id));
+    newTagName.value = "";
+    message.success("标签已创建");
+  } finally {
+    tagCreating.value = false;
+  }
 }
 
 function detach() {
@@ -182,6 +227,7 @@ function switchToEdit() {
 
 onMounted(async () => {
   types.value = toSelectOptions(await loadDictionary("NOTE_TYPE"));
+  tags.value = await http.get("/notes/tags");
   await load();
 });
 </script>
@@ -193,5 +239,11 @@ onMounted(async () => {
   margin-bottom: 18px;
   max-height: 480px;
   overflow: auto;
+}
+
+.tag-create-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 </style>

@@ -1,10 +1,12 @@
 package com.tradn.note.model;
 
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.tradn.common.model.BaseEntity;
 import java.time.LocalDate;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import java.util.List;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -46,4 +48,8 @@ public class Note extends BaseEntity {
 
     /** 有效数据唯一键，用于逻辑删除场景下约束来源唯一性。 */
     private String activeUniqueKey;
+
+    /** 当前笔记绑定的标签，仅用于接口返回，不映射到 note 表。 */
+    @TableField(exist = false)
+    private List<NoteTag> tags;
 }

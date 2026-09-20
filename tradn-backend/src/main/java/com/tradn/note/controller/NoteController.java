@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.tradn.common.api.ApiResponse;
 import com.tradn.note.model.Note;
 import com.tradn.note.model.NoteCommand;
+import com.tradn.note.model.NoteTag;
+import com.tradn.note.model.NoteTagCommand;
 import com.tradn.note.service.NoteService;
 import java.net.URLEncoder;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +14,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import javax.validation.Valid;
+import java.util.List;
 
 @RestController
 @RequestMapping("/v1/notes")
@@ -27,14 +31,37 @@ public class NoteController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String type) {
-        return ApiResponse.ok(service.list(page, size, keyword, type));
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) Long tagId) {
+        return ApiResponse.ok(service.list(page, size, keyword, type, tagId));
+    }
+
+    /** 查询当前账号可使用的全部笔记标签。 */
+    @GetMapping("/tags")
+    @PreAuthorize("hasAuthority('note:note:list')")
+    public ApiResponse<List<NoteTag>> listTags() {
+        return ApiResponse.ok(service.listTags());
+    }
+
+    /** 创建一个当前账号独有的笔记标签。 */
+    @PostMapping("/tags")
+    @PreAuthorize("hasAuthority('note:note:update')")
+    public ApiResponse<NoteTag> createTag(@Valid @RequestBody NoteTagCommand command) {
+        return ApiResponse.ok(service.createTag(command));
+    }
+
+    /** 删除当前账号的笔记标签，并解除其与笔记的关系。 */
+    @DeleteMapping("/tags/{id}")
+    @PreAuthorize("hasAuthority('note:note:update')")
+    public ApiResponse<Void> deleteTag(@PathVariable long id) {
+        service.deleteTag(id);
+        return ApiResponse.ok();
     }
 
     /** 创建一篇用户手工笔记。 */
     @PostMapping
     @PreAuthorize("hasAuthority('note:note:create')")
-    public ApiResponse<Note> create(@RequestBody NoteCommand c) {
+    public ApiResponse<Note> create(@Valid @RequestBody NoteCommand c) {
         return ApiResponse.ok(service.create(c));
     }
 

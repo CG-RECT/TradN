@@ -1,17 +1,15 @@
 <template>
-  <div v-if="trade" class="page trade-page">
-    <div class="page-header">
-      <div>
-        <a @click="back">← 返回列表</a>
-        <div class="page-title">
-          {{ isReadOnly ? "查看" : isNew ? "新建" : "编辑" }}开仓提示问卷 ·
-          {{ trade.recordNo }}
-        </div>
-      </div>
-      <a-button @click="back">关闭</a-button>
-    </div>
+  <EditorPageLayout
+    v-if="trade"
+    class="trade-page"
+    :title="`${isReadOnly ? '查看' : isNew ? '新建' : '编辑'}开仓提示问卷 · ${trade.recordNo}`"
+  >
+    <template #header-extra>
+      <a-tag v-if="!isNew" :color="dictionaryColor(statusOptions, trade.status)">
+        {{ dictionaryLabel(statusOptions, trade.status) }}
+      </a-tag>
+    </template>
 
-    <div class="page-actions" v-if="!isNew"><a-tag :color="dictionaryColor(statusOptions, trade.status)">{{ dictionaryLabel(statusOptions, trade.status) }}</a-tag><a-button v-if="isReadOnly" type="primary" @click="switchToEdit">进入编辑</a-button></div>
     <a-form layout="vertical">
       <div class="content-card">
         <a-row :gutter="16">
@@ -79,12 +77,6 @@
           show-icon
           message="你标记了这是一笔随手单，请重新确认交易依据和风险。"
         />
-        <a-space v-if="!isReadOnly" class="section-actions">
-          <a-button type="primary" @click="savePlan">
-            {{ isNew ? "保存并创建" : "保存开仓前问卷" }}
-          </a-button>
-          <a-button @click="back">取消</a-button>
-        </a-space>
       </div>
 
       <div v-if="!isNew" class="content-card section">
@@ -105,7 +97,6 @@
             :disabled="isReadOnly"
           />
         </div>
-        <a-button v-if="!isReadOnly" @click="saveReview">保存开仓后复盘</a-button>
       </div>
 
       <div v-if="showPosition" class="content-card section">
@@ -174,24 +165,23 @@
             </a-col>
           </template>
         </a-row>
-        <a-button
-          v-if="!isReadOnly && trade.status === 'PLANNED'"
-          type="primary"
-          @click="markOpen"
-        >
-          标记已开仓
-        </a-button>
-        <a-button
-          v-if="!isReadOnly && trade.status === 'OPEN'"
-          type="primary"
-          danger
-          @click="markClose"
-        >
-          标记已平仓
-        </a-button>
       </div>
     </a-form>
-  </div>
+
+    <template #actions>
+      <a-button @click="back">关闭</a-button>
+      <a-button v-if="isReadOnly" type="primary" @click="switchToEdit">进入编辑</a-button>
+      <template v-else>
+        <a-button @click="back">取消</a-button>
+        <a-button type="primary" @click="savePlan">
+          {{ isNew ? "保存并创建" : "保存开仓前问卷" }}
+        </a-button>
+        <a-button v-if="!isNew" @click="saveReview">保存开仓后复盘</a-button>
+        <a-button v-if="!isNew && trade.status === 'PLANNED'" type="primary" @click="markOpen">标记已开仓</a-button>
+        <a-button v-if="!isNew && trade.status === 'OPEN'" type="primary" danger @click="markClose">标记已平仓</a-button>
+      </template>
+    </template>
+  </EditorPageLayout>
   <a-spin v-else class="loading" />
 </template>
 
@@ -206,6 +196,7 @@ import {
   dictionaryLabel,
   loadDictionary,
 } from "../../api/dictionary";
+import EditorPageLayout from "../../components/editor/EditorPageLayout.vue";
 
 const route = useRoute();
 const router = useRouter();

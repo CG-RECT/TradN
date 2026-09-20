@@ -1,6 +1,7 @@
 package com.tradn.note.model;
 
 import java.time.LocalDate;
+import java.util.List;
 import lombok.Data;
 
 @Data
@@ -26,4 +27,7 @@ public class NoteCommand {
 
     /** 客户端读取到的乐观锁版本号。 */
     private Integer version;
+
+    /** 笔记绑定的标签 ID 列表。 */
+    private List<Long> tagIds;
 }
