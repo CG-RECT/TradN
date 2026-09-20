@@ -40,7 +40,7 @@
         @pointerup="endDrag"
         @pointercancel="endDrag"
       >
-        <div class="timeline-grid">
+        <div class="timeline-grid" :style="{ width: `${gridWidth}px`, height: `${gridHeight}px` }">
           <article
             v-for="item in days"
             :key="item.date"
@@ -48,87 +48,44 @@
             :class="{ today: item.date === todayValue }"
             :style="dayStyle"
           >
-            <button class="date-button" type="button" @click="edit(item)">
+            <button class="date-button" type="button" @click="openEditor(item.date)">
               <strong>{{ item.date.slice(5) }}</strong>
               <span>{{ weekday(item.date) }}</span>
             </button>
             <div class="timeline-dot" />
+            <button class="date-add-button" type="button" title="添加当天备注" @click="openEditor(item.date)">
+              +
+            </button>
 
-            <div class="day-content" @click="edit(item)">
-              <template v-if="item.data">
-                <div class="day-assets day-assets-top">
-                  <template
-                    v-for="(row, rowIndex) in dayLayout(item.data).top"
-                    :key="`top-${rowIndex}`"
-                  >
-                    <div v-if="row.length" class="asset-row">
-                      <template v-for="asset in row" :key="asset.key">
-                        <button
-                          v-if="asset.kind === 'file'"
-                          class="asset image-asset"
-                          type="button"
-                          title="查看当天图片"
-                          @click.stop="previewImage(asset.value)"
-                        >
-                          <img :src="asset.value.thumbnailUrl" loading="lazy" alt="黄金走势图缩略图" />
-                        </button>
-                        <button
-                          v-else
-                          class="asset note-asset"
-                          type="button"
-                          :title="asset.value.summary || asset.value.title"
-                          @click.stop="openNote(asset.value.id)"
-                        >
-                          <strong>{{ asset.value.title }}</strong>
-                          <span>{{ asset.value.summary || "暂无摘要" }}</span>
-                        </button>
-                      </template>
-                    </div>
-                  </template>
-                </div>
-                <p v-if="item.data.timeline.dailyContent" class="daily-summary">
-                  {{ item.data.timeline.dailyContent }}
-                </p>
-                <div class="day-assets day-assets-bottom">
-                  <template
-                    v-for="(row, rowIndex) in dayLayout(item.data).bottom"
-                    :key="`bottom-${rowIndex}`"
-                  >
-                    <div v-if="row.length" class="asset-row">
-                      <template v-for="asset in row" :key="asset.key">
-                        <button
-                          v-if="asset.kind === 'file'"
-                          class="asset image-asset"
-                          type="button"
-                          title="查看当天图片"
-                          @click.stop="previewImage(asset.value)"
-                        >
-                          <img :src="asset.value.thumbnailUrl" loading="lazy" alt="黄金走势图缩略图" />
-                        </button>
-                        <button
-                          v-else
-                          class="asset note-asset"
-                          type="button"
-                          :title="asset.value.summary || asset.value.title"
-                          @click.stop="openNote(asset.value.id)"
-                        >
-                          <strong>{{ asset.value.title }}</strong>
-                          <span>{{ asset.value.summary || "暂无摘要" }}</span>
-                        </button>
-                      </template>
-                    </div>
-                  </template>
-                </div>
-                <div v-if="hiddenCount(item.data) > 0" class="more-line">
-                  另有 {{ hiddenCount(item.data) }} 项，点击日期查看
-                </div>
-              </template>
-              <button v-else class="empty" type="button" @click.stop="edit(item)">
-                <strong>+ 添加当天记录</strong>
-                <span>文字备注 · 图片备注 · 笔记备注</span>
-              </button>
-            </div>
+            <button v-if="!(item.data?.entries?.length)" class="day-add-hint" type="button" @click.stop="openEditor(item.date)">
+              <strong>+ 添加当天记录</strong>
+              <span>文字备注 · 图片备注 · 笔记备注</span>
+            </button>
           </article>
+
+          <template v-for="card in layoutEntries" :key="card.key">
+            <button
+              class="timeline-entry-card"
+              :class="[`lane-${card.lane}`, `entry-${card.entry.entryType.toLowerCase()}`]"
+              :style="entryStyle(card)"
+              type="button"
+              @click.stop="handleEntryClick(card.entry)"
+            >
+              <template v-if="card.entry.entryType === 'TEXT'">
+                <span class="entry-type">文字备注</span>
+                <span class="entry-content">{{ card.entry.content }}</span>
+              </template>
+              <template v-else-if="card.entry.entryType === 'IMAGE'">
+                <img v-if="card.entry.file?.thumbnailUrl" :src="card.entry.file.thumbnailUrl" loading="lazy" alt="黄金走势图备注" />
+                <span v-else class="entry-type">图片备注</span>
+              </template>
+              <template v-else>
+                <span class="entry-type">笔记备注</span>
+                <strong>{{ card.entry.note?.title || "关联笔记" }}</strong>
+                <span v-if="card.entry.note?.summary" class="entry-content">{{ card.entry.note.summary }}</span>
+              </template>
+            </button>
+          </template>
         </div>
       </div>
       <a-button
@@ -150,19 +107,21 @@
 
     <a-modal
       v-model:open="editorOpen"
-      :title="`${current.date} 黄金时间线`"
+      :title="`${editor.entryId ? '编辑' : '添加'} ${current.date} 备注`"
       width="760px"
       :confirm-loading="saving"
-      @ok="save"
+      @ok="saveEntry"
+      @cancel="closeEditor"
     >
       <a-form layout="vertical">
-        <div class="editor-section text-note-section">
+        <a-form-item label="备注类型">
+          <a-select v-model:value="editor.entryType" :disabled="Boolean(editor.entryId)" :options="entryTypeOptions" />
+        </a-form-item>
+        <div v-if="editor.entryType === 'TEXT'" class="editor-section text-note-section">
           <div class="editor-section-title">文字备注</div>
-          <a-form-item label="当天市场观察、价格走势和复盘摘要">
-            <a-textarea v-model:value="editor.dailyContent" :rows="5" placeholder="记录当天看到的行情、消息和自己的判断……" />
-          </a-form-item>
+          <a-textarea v-model:value="editor.content" :rows="6" placeholder="记录当天看到的行情、消息和自己的判断……" />
         </div>
-        <div class="editor-section image-note-section">
+        <div v-else-if="editor.entryType === 'IMAGE'" class="editor-section image-note-section">
           <div class="editor-section-title">图片备注</div>
           <a-form-item label="上传当天走势图或其他资料图片">
             <a-upload
@@ -171,42 +130,30 @@
               list-type="picture"
               multiple
             >
-              <a-button>选择图片</a-button>
+              <a-button :disabled="Boolean(editor.entryId)">选择图片</a-button>
             </a-upload>
           </a-form-item>
+          <div class="muted editor-help">可以一次选择多张图片，每张图片会作为一张独立备注卡片。</div>
         </div>
-        <div class="editor-section linked-note-section">
+        <div v-else class="editor-section linked-note-section">
           <div class="editor-section-title">笔记备注</div>
-          <a-form-item label="关联已有笔记">
-            <a-select
-              v-model:value="editor.noteIds"
-              mode="multiple"
-              :options="noteOptions"
-              placeholder="选择笔记模块中的已有笔记"
-              :dropdown-match-select-width="false"
-            />
-          </a-form-item>
-          <a-divider orientation="left">或在保存时新建一篇笔记并关联</a-divider>
-          <a-form-item label="新建笔记标题">
-            <a-input v-model:value="editor.newNoteTitle" placeholder="例如：黄金每日复盘 - 2026-09-20" />
-          </a-form-item>
-          <a-form-item label="新建笔记摘要">
-            <a-input v-model:value="editor.newNoteSummary" placeholder="可选，作为笔记列表摘要" />
-          </a-form-item>
-          <a-form-item v-if="editor.newNoteTitle" label="新建笔记正文">
-            <a-textarea v-model:value="editor.newNoteContent" :rows="4" placeholder="可选，支持 Markdown" />
-          </a-form-item>
+          <a-radio-group v-model:value="editor.noteMode" :disabled="Boolean(editor.entryId)">
+            <a-radio value="EXISTING">关联已有笔记</a-radio>
+            <a-radio value="NEW">新建笔记</a-radio>
+          </a-radio-group>
+          <a-select v-if="editor.noteMode === 'EXISTING'" v-model:value="editor.noteId" class="full-width editor-control" :options="noteOptions" placeholder="选择笔记模块中的已有笔记" />
+          <template v-else>
+            <a-form-item label="笔记标题" class="editor-control"><a-input v-model:value="editor.newNoteTitle" placeholder="例如：黄金走势观察" /></a-form-item>
+            <a-form-item label="笔记摘要" class="editor-control"><a-input v-model:value="editor.newNoteSummary" placeholder="可选" /></a-form-item>
+            <a-form-item label="笔记正文" class="editor-control"><a-textarea v-model:value="editor.newNoteContent" :rows="4" placeholder="可选，支持 Markdown" /></a-form-item>
+          </template>
         </div>
       </a-form>
-      <div v-if="current.data?.files?.length" class="existing">
-        <a-image
-          v-for="file in current.data.files"
-          :key="file.id"
-          :src="file.thumbnailUrl"
-          :preview="{ src: file.originalUrl }"
-          width="88px"
-        />
-      </div>
+      <template #footer>
+        <a-button v-if="editor.entryId && editor.entryType === 'TEXT'" danger @click="removeCurrentEntry">删除备注</a-button>
+        <a-button @click="closeEditor">关闭</a-button>
+        <a-button type="primary" :loading="saving" @click="saveEntry">保存</a-button>
+      </template>
     </a-modal>
   </div>
 </template>
@@ -214,18 +161,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import dayjs from "dayjs";
+import { message, Modal } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import http from "../../api/http";
 import { isTimelineInteractiveTarget } from "../../utils/timelineInteraction";
 
 const INITIAL_SIDE_DAYS = 10;
 const EDGE_LOAD_DAYS = 10;
-const MAX_CONTENT_ROWS = 5;
-const MAX_VISIBLE_ASSETS = MAX_CONTENT_ROWS * 2;
+const MAX_CONTENT_ROWS = 6;
 const MIN_ZOOM = 0.7;
 const MAX_ZOOM = 1.6;
 const ZOOM_STEP = 0.15;
 const GAP = 14;
+const LINE_Y = 460;
 
 const router = useRouter();
 const shell = ref<HTMLElement>();
@@ -242,10 +190,25 @@ const previewUrl = ref("");
 const zoom = ref(1);
 const dragging = ref(false);
 const current = reactive<any>({ date: "", data: null });
-const editor = reactive<any>({ dailyContent: "", noteIds: [], version: null, newNoteTitle: "", newNoteSummary: "", newNoteContent: "" });
+const editor = reactive<any>({
+  entryId: null,
+  legacyText: false,
+  entryType: "TEXT",
+  content: "",
+  noteMode: "EXISTING",
+  noteId: undefined,
+  newNoteTitle: "",
+  newNoteSummary: "",
+  newNoteContent: "",
+});
 const uploadList = ref<any[]>([]);
 const noteOptions = ref<any[]>([]);
 const todayValue = dayjs().format("YYYY-MM-DD");
+const entryTypeOptions = [
+  { value: "TEXT", label: "文字备注" },
+  { value: "IMAGE", label: "图片备注" },
+  { value: "NOTE", label: "笔记备注" },
+];
 let resizeObserver: ResizeObserver | undefined;
 let dragStartX = 0;
 let dragStartScrollLeft = 0;
@@ -260,6 +223,9 @@ const dayStyle = computed(() => ({
   width: `${cellWidth.value}px`,
   flexBasis: `${cellWidth.value}px`,
 }));
+const stepWidth = computed(() => cellWidth.value + GAP);
+const gridWidth = computed(() => Math.max(1200, days.value.length * stepWidth.value));
+const gridHeight = computed(() => LINE_Y + 3 * 152 + 120);
 const days = computed(() => {
   const recordMap = new Map(
     records.value.map((item) => [item.timeline.timelineDate, item]),
@@ -270,6 +236,47 @@ const days = computed(() => {
     return { date, data: recordMap.get(date) };
   });
 });
+
+type LayoutCard = { key: string; entry: any; lane: number; left: number; width: number; height: number };
+
+const layoutEntries = computed<LayoutCard[]>(() => {
+  const laneEnds = Array.from({ length: MAX_CONTENT_ROWS }, () => -Infinity);
+  const source = days.value.flatMap((day, index) =>
+    (day.data?.entries || []).map((entry: any) => ({ entry, index })),
+  );
+  source.sort((a, b) => a.index - b.index || String(a.entry.created_at || "").localeCompare(String(b.entry.created_at || "")));
+  const result: LayoutCard[] = [];
+  source.forEach(({ entry, index }) => {
+    const width = cardWidth(entry);
+    const center = index * stepWidth.value + cellWidth.value / 2;
+    const left = Math.max(0, center - width / 2);
+    const right = left + width;
+    const preferred = [0, 3, 1, 4, 2, 5];
+    const lane = preferred.find((candidate) => left > laneEnds[candidate] + 10) ?? 5;
+    laneEnds[lane] = right;
+    result.push({ key: `${entry.entryType}-${entry.id}`, entry, lane, left, width, height: cardHeight(entry) });
+  });
+  return result;
+});
+
+function cardWidth(entry: any) {
+  const length = String(entry.content || entry.note?.title || "").length;
+  const desired = entry.entryType === "IMAGE" ? cellWidth.value * 1.35 : 280 + length * 4;
+  return Math.min(cellWidth.value * 2.4, Math.max(cellWidth.value * 0.86, desired));
+}
+
+function cardHeight(entry: any) {
+  if (entry.entryType === "IMAGE") return 126;
+  const length = String(entry.content || entry.note?.summary || entry.note?.title || "").length;
+  return Math.min(132, Math.max(82, 70 + Math.ceil(length / 42) * 18));
+}
+
+function entryStyle(card: LayoutCard) {
+  const top = card.lane < 3
+    ? LINE_Y - (card.lane + 1) * 152 + 10
+    : LINE_Y + (card.lane - 3) * 152 + 24;
+  return { left: `${card.left}px`, width: `${card.width}px`, height: `${card.height}px`, top: `${top}px` };
+}
 
 async function fetchRange(from: dayjs.Dayjs, to: dayjs.Dayjs) {
   const incoming: any[] = await http.get("/timelines", {
@@ -288,10 +295,6 @@ async function initialLoad() {
   centerToday(false);
 }
 
-function stepWidth() {
-  return cellWidth.value + GAP;
-}
-
 async function loadPrevious() {
   if (loadingPrevious.value) return;
   loadingPrevious.value = true;
@@ -303,7 +306,7 @@ async function loadPrevious() {
     loadedFrom.value = previousFrom;
     positioning = true;
     await nextTick();
-    if (shell.value) shell.value.scrollLeft = oldScrollLeft + EDGE_LOAD_DAYS * stepWidth();
+    if (shell.value) shell.value.scrollLeft = oldScrollLeft + EDGE_LOAD_DAYS * stepWidth.value;
     requestAnimationFrame(() => (positioning = false));
   } finally {
     loadingPrevious.value = false;
@@ -366,12 +369,12 @@ function scrollHorizontally(event: WheelEvent) {
 
 async function adjustZoom(delta: number) {
   if (!shell.value) return;
-  const oldStep = stepWidth();
+  const oldStep = stepWidth.value;
   const centerIndex = (shell.value.scrollLeft + shell.value.clientWidth / 2) / oldStep;
   zoom.value = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number((zoom.value + delta).toFixed(2))));
   positioning = true;
   await nextTick();
-  shell.value.scrollLeft = centerIndex * stepWidth() - shell.value.clientWidth / 2;
+  shell.value.scrollLeft = centerIndex * stepWidth.value - shell.value.clientWidth / 2;
   requestAnimationFrame(() => (positioning = false));
 }
 
@@ -381,7 +384,7 @@ function centerToday(smooth = true) {
   if (index < 0 || index >= days.value.length) return;
   positioning = true;
   shell.value.scrollTo({
-    left: index * stepWidth() - (shell.value.clientWidth - cellWidth.value) / 2,
+    left: index * stepWidth.value - (shell.value.clientWidth - cellWidth.value) / 2,
     behavior: smooth ? "smooth" : "auto",
   });
   window.setTimeout(() => (positioning = false), smooth ? 500 : 0);
@@ -391,55 +394,52 @@ function weekday(date: string) {
   return `周${["日", "一", "二", "三", "四", "五", "六"][dayjs(date).day()]}`;
 }
 
-/**
- * 将当天图片和笔记按“当前累计高度最小的行”分配，形成最多五行的瀑布流。
- * 估算高度后再分配，能让长标题/摘要优先落到空间更充足的行，避免单行被撑得过高。
- */
-function dayLayout(data: any) {
-  const assets = [
-    ...data.files.map((file: any) => ({ kind: "file", value: file, key: `file-${file.id}` })),
-    ...data.notes.map((note: any) => ({ kind: "note", value: note, key: `note-${note.id}` })),
-  ].slice(0, MAX_VISIBLE_ASSETS);
-  const rows: Array<{ height: number; assets: any[] }> = Array.from(
-    { length: MAX_CONTENT_ROWS },
-    () => ({ height: 0, assets: [] }),
-  );
-  assets.forEach((asset: any) => {
-    const estimatedHeight =
-      asset.kind === "file"
-        ? 120
-        : Math.min(180, 66 + String(asset.value.summary || asset.value.title || "").length * 1.5);
-    const target = rows.reduce(
-      (shortest, row, index) => (row.height < rows[shortest].height ? index : shortest),
-      0,
-    );
-    rows[target].assets.push(asset);
-    rows[target].height += estimatedHeight + 8;
-  });
-  return {
-    top: rows.slice(0, 2).map((row) => row.assets),
-    bottom: rows.slice(2).map((row) => row.assets),
-  };
-}
-
-function hiddenCount(data: any) {
-  return Math.max(0, data.files.length + data.notes.length - MAX_VISIBLE_ASSETS);
-}
-
-function edit(item: any) {
+function openEditor(date: string) {
   if (dragMoved) {
     dragMoved = false;
     return;
   }
-  current.date = item.date;
-  current.data = item.data || null;
-  editor.dailyContent = item.data?.timeline.dailyContent || "";
-  editor.noteIds = item.data?.notes.map((note: any) => String(note.id)) || [];
-  editor.version = item.data?.timeline.version ?? null;
-  editor.newNoteTitle = "";
-  editor.newNoteSummary = "";
-  editor.newNoteContent = "";
+  current.date = date;
+  current.data = records.value.find((item) => item.timeline.timelineDate === date) || null;
+  Object.assign(editor, {
+    entryId: null,
+    legacyText: false,
+    entryType: "TEXT",
+    content: "",
+    noteMode: "EXISTING",
+    noteId: undefined,
+    newNoteTitle: "",
+    newNoteSummary: "",
+    newNoteContent: "",
+  });
   uploadList.value = [];
+  editorOpen.value = true;
+}
+
+function handleEntryClick(entry: any) {
+  if (dragMoved) {
+    dragMoved = false;
+    return;
+  }
+  if (entry.entryType === "IMAGE") {
+    previewImage(entry.file);
+    return;
+  }
+  if (entry.entryType === "NOTE") {
+    openNote(entry.noteId || entry.note?.id);
+    return;
+  }
+  const source = days.value.find((day) =>
+    day.data?.entries?.some((item: any) => String(item.id) === String(entry.id)),
+  );
+  current.date = source?.date || current.date;
+  current.data = source?.data || null;
+  Object.assign(editor, {
+    entryId: entry.legacy ? null : entry.id,
+    legacyText: Boolean(entry.legacy),
+    entryType: "TEXT",
+    content: entry.content || "",
+  });
   editorOpen.value = true;
 }
 
@@ -448,58 +448,89 @@ function beforeUpload(file: any) {
   return false;
 }
 
-async function save() {
+async function saveEntry() {
+  if (saving.value) return;
   saving.value = true;
   try {
-    const noteIds = [...editor.noteIds];
-    // 新建笔记只在用户点击弹窗“保存”时提交，取消弹窗不会产生孤立笔记。
-    if (editor.newNoteTitle.trim()) {
-      const created: any = await http.post("/notes", {
-        title: editor.newNoteTitle.trim(),
-        noteType: "NORMAL",
-        businessDate: current.date,
-        summary: editor.newNoteSummary,
-        manualContent: editor.newNoteContent,
-        pinned: 0,
-      });
-      noteIds.push(String(created.id));
+    if (editor.entryType === "TEXT") {
+      if (!editor.content?.trim()) {
+        message.warning("文字备注不能为空");
+        return;
+      }
+      if (editor.entryId) {
+        await http.put(`/timelines/${current.date}/entries/${editor.entryId}`, { content: editor.content });
+      } else if (editor.legacyText) {
+        await http.put(`/timelines/${current.date}`, {
+          dailyContent: editor.content,
+          noteIds: (current.data?.notes || []).map((note: any) => note.id),
+          version: current.data?.timeline?.version,
+        });
+      } else {
+        await http.post(`/timelines/${current.date}/entries`, { entryType: "TEXT", content: editor.content });
+      }
+    } else if (editor.entryType === "IMAGE") {
+      if (!uploadList.value.length) {
+        message.warning("请选择至少一张图片");
+        return;
+      }
+      for (const file of uploadList.value) {
+        const data = new FormData();
+        data.append("file", file.originFileObj || file);
+        await http.post(`/timelines/${current.date}/entries/image`, data, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+    } else {
+      let noteId = editor.noteId;
+      if (editor.noteMode === "NEW") {
+        if (!editor.newNoteTitle?.trim()) {
+          message.warning("请输入新笔记标题");
+          return;
+        }
+        const created: any = await http.post("/notes", {
+          title: editor.newNoteTitle.trim(),
+          noteType: "NORMAL",
+          businessDate: current.date,
+          summary: editor.newNoteSummary,
+          manualContent: editor.newNoteContent,
+          pinned: 0,
+        });
+        noteId = created.id;
+      }
+      if (!noteId) {
+        message.warning("请选择已有笔记或填写新笔记");
+        return;
+      }
+      await http.post(`/timelines/${current.date}/entries`, { entryType: "NOTE", noteId });
     }
-    const saved: any = await http.put(`/timelines/${current.date}`, {
-      dailyContent: editor.dailyContent,
-      noteIds,
-      version: editor.version,
-    });
-    for (const file of uploadList.value) {
-      const data = new FormData();
-      data.append("file", file.originFileObj || file);
-      await http.post("/files", data, {
-        params: {
-          businessType: "TIMELINE",
-          businessId: saved.id,
-          usageType: "CHART",
-        },
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-    }
-    if (uploadList.value.length > 0) {
-      // 文件关系建立后重新读取版本，再同步一次，使每日汇总笔记立即包含新图片。
-      const refreshed: any = await http.get(`/timelines/${current.date}`);
-      await http.put(`/timelines/${current.date}`, {
-        dailyContent: editor.dailyContent,
-        noteIds,
-        version: refreshed.timeline.version,
-      });
-    }
-    editorOpen.value = false;
-    const date = dayjs(current.date);
-    await fetchRange(date, date);
+    message.success("时间线备注已保存");
+    closeEditor();
+    await fetchRange(dayjs(current.date), dayjs(current.date));
   } finally {
     saving.value = false;
   }
 }
 
+function removeCurrentEntry() {
+  Modal.confirm({
+    title: "删除这条文字备注？",
+    content: "删除后不可恢复，但不会影响笔记模块中的原始数据。",
+    onOk: async () => {
+      await http.delete(`/timelines/${current.date}/entries/${editor.entryId}`);
+      message.success("备注已删除");
+      closeEditor();
+      await fetchRange(dayjs(current.date), dayjs(current.date));
+    },
+  });
+}
+
+function closeEditor() {
+  editorOpen.value = false;
+  uploadList.value = [];
+}
+
 function previewImage(file: any) {
-  if (dragMoved) return;
+  if (dragMoved || !file) return;
   previewUrl.value = file.originalUrl || file.thumbnailUrl;
   previewVisible.value = true;
 }
@@ -579,11 +610,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 }
 
 .timeline-grid {
-  --date-line-top: 258px;
   position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
+  display: block;
+  --date-line-top: 258px;
   min-width: max-content;
 }
 
@@ -592,9 +621,16 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   position: absolute;
   left: 0;
   right: 0;
-  top: var(--date-line-top);
+  top: 460px;
   height: 2px;
   background: linear-gradient(90deg, #d4a72c, #f0d98f);
+}
+
+.timeline-grid .day-column {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  flex: none;
 }
 
 .day-column {
@@ -606,7 +642,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .date-button {
   position: absolute;
   z-index: 3;
-  top: 205px;
+  top: 408px;
   left: 0;
   width: 100%;
   height: 42px;
@@ -632,7 +668,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .timeline-dot {
   position: absolute;
   z-index: 2;
-  top: 251px;
+  top: 454px;
   left: calc(50% - 6px);
   width: 12px;
   height: 12px;
@@ -641,6 +677,91 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   border-radius: 50%;
   background: #d4a72c;
   box-shadow: 0 0 0 1px #d4a72c;
+}
+
+.date-add-button {
+  position: absolute;
+  z-index: 5;
+  top: 449px;
+  left: calc(50% + 12px);
+  width: 24px;
+  height: 24px;
+  border: 1px solid #d4a72c;
+  border-radius: 50%;
+  background: #fffdf6;
+  color: #9c7615;
+  cursor: pointer;
+}
+
+.day-add-hint {
+  position: absolute;
+  top: 496px;
+  left: 4%;
+  width: 92%;
+  height: 90px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 8px;
+  background: #fff;
+  color: #8a6b18;
+  cursor: pointer;
+}
+
+.day-add-hint span {
+  display: block;
+  margin-top: 8px;
+  color: #9aa3ad;
+  font-size: 12px;
+}
+
+.timeline-entry-card {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  padding: 12px 14px;
+  overflow: hidden;
+  border: 1px solid #e0e5ec;
+  border-radius: 10px;
+  background: #f8fbff;
+  box-shadow: 0 2px 8px #1f293710;
+  color: #243447;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timeline-entry-card:hover {
+  z-index: 6;
+  border-color: #d4a72c;
+  box-shadow: 0 6px 18px #1f293526;
+}
+
+.entry-text { background: #f8fbff; }
+.entry-image { padding: 6px; background: #fffdf6; }
+.entry-note { background: #fff8df; }
+
+.timeline-entry-card img {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.entry-type {
+  color: #8a6b18;
+  font-size: 12px;
+}
+
+.entry-content {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #536172;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .today .date-button strong {
@@ -767,6 +888,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .text-note-section { border-left: 3px solid #3b82f6; }
 .image-note-section { border-left: 3px solid #d4a72c; }
 .linked-note-section { border-left: 3px solid #8b5cf6; }
+.editor-control { margin-top: 14px; }
+.editor-help { margin-top: 10px; font-size: 12px; }
 .day-content:has(.day-assets) { background: #fffdf6; }
 .day-content:has(.daily-summary) { background: #f8fbff; }
 .day-content:has(.day-assets):hover { border-color: #d4a72c; }
