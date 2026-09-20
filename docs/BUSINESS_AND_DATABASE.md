@@ -38,7 +38,7 @@
 - `note` 保存 Markdown 原文，类型为 `NORMAL`、`GOLD_DAILY_SUMMARY`、`TRADE_REVIEW`。
 - 自动汇总笔记分 `generated_content`（系统写）和 `manual_content`（用户写）。
 - `sync_status=AUTO` 时跟随时间线；解除后为 `DETACHED`，自动内容合并到人工内容。
-- `note_tag`、`note_tag_relation` 提供用户自定义标签和笔记多对多绑定；列表支持按标签筛选，编辑页可以选择已有标签或即时创建标签。
+- `note_tag`、`note_tag_relation` 提供用户自定义标签和笔记多对多绑定；编辑页通过英文分号输入多个标签，保存时自动复用或创建标签，列表支持按标签筛选并使用不同颜色展示。
 - 新建笔记在浏览器中暂存，点击保存才写入数据库；取消或返回不产生占位笔记。查看与编辑入口分离。
 
 ## 5. 黄金时间线

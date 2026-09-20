@@ -168,7 +168,7 @@
             <a-button type="primary" :loading="saving" @click="saveNode">
               保存
             </a-button>
-            <a-button @click="cancelEdit">取消</a-button>
+            <a-button @click="cancelEdit">关闭</a-button>
           </a-space>
         </a-form>
 

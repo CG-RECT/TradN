@@ -40,21 +40,13 @@
         </a-col>
         <a-col :span="24">
           <a-form-item label="标签">
-            <a-select
-              v-model:value="form.tagIds"
-              mode="multiple"
+            <a-input
+              v-model:value="form.tagText"
               :disabled="isReadOnly"
-              :options="tagOptions"
-              placeholder="选择或创建标签"
+              placeholder="多个标签请使用英文分号 ; 分隔，例如：趋势;机构;复盘"
             />
-            <div v-if="!isReadOnly" class="tag-create-row">
-              <a-input
-                v-model:value="newTagName"
-                placeholder="输入新标签名称"
-                style="max-width: 260px"
-                @pressEnter="createTag"
-              />
-              <a-button :loading="tagCreating" @click="createTag">新增标签</a-button>
+            <div v-if="!isReadOnly" class="tag-hint muted">
+              保存时会自动创建不存在的标签；展示时每个标签使用独立颜色。
             </div>
           </a-form-item>
         </a-col>
@@ -82,7 +74,6 @@
       <a-button v-if="!isNew" @click="download">导出 Markdown</a-button>
       <a-button v-if="isReadOnly" type="primary" @click="switchToEdit">进入编辑</a-button>
       <template v-else>
-        <a-button @click="back">取消</a-button>
         <a-button type="primary" @click="save">保存</a-button>
       </template>
     </template>
@@ -106,12 +97,6 @@ const isReadOnly = computed(() => route.query.mode === "view");
 const note = ref<any>();
 const form = reactive<any>({});
 const types = ref<any[]>([]);
-const tags = ref<any[]>([]);
-const newTagName = ref("");
-const tagCreating = ref(false);
-const tagOptions = computed(() =>
-  tags.value.map((tag) => ({ value: String(tag.id), label: tag.tagName })),
-);
 
 async function load() {
   if (isNew.value) {
@@ -129,14 +114,37 @@ async function load() {
   Object.assign(form, note.value, {
     businessDate: note.value.businessDate ? dayjs(note.value.businessDate) : null,
     manualContent: note.value.manualContent || "",
-    tagIds: (note.value.tags || []).map((tag: any) => String(tag.id)),
+    tagText: (note.value.tags || []).map((tag: any) => tag.tagName).join(";"),
   });
+}
+
+function splitTagNames(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[;；]/)
+        .map((name) => name.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+async function resolveTagIds(value: string) {
+  const ids: string[] = [];
+  for (const tagName of splitTagNames(value)) {
+    const tag: any = await http.post("/notes/tags", { tagName });
+    ids.push(String(tag.id));
+  }
+  return ids;
 }
 
 // 自动生成区由时间线维护，页面仅提交人工编辑区和允许修改的元数据。
 async function save() {
+  const tagIds = await resolveTagIds(form.tagText || "");
+  const { tagText: _tagText, ...formData } = form;
   const data = {
-    ...form,
+    ...formData,
+    tagIds,
     businessDate: form.businessDate?.format("YYYY-MM-DD"),
     version: note.value.version,
   };
@@ -150,21 +158,6 @@ async function save() {
   await http.put(`/notes/${note.value.id}`, data);
   message.success("笔记已保存");
   await load();
-}
-
-async function createTag() {
-  const tagName = newTagName.value.trim();
-  if (!tagName) return;
-  tagCreating.value = true;
-  try {
-    const tag: any = await http.post("/notes/tags", { tagName });
-    tags.value = [...tags.value.filter((item) => item.id !== tag.id), tag];
-    if (!form.tagIds.includes(String(tag.id))) form.tagIds.push(String(tag.id));
-    newTagName.value = "";
-    message.success("标签已创建");
-  } finally {
-    tagCreating.value = false;
-  }
 }
 
 function detach() {
@@ -227,7 +220,6 @@ function switchToEdit() {
 
 onMounted(async () => {
   types.value = toSelectOptions(await loadDictionary("NOTE_TYPE"));
-  tags.value = await http.get("/notes/tags");
   await load();
 });
 </script>
@@ -241,9 +233,8 @@ onMounted(async () => {
   overflow: auto;
 }
 
-.tag-create-row {
-  display: flex;
-  gap: 8px;
+.tag-hint {
   margin-top: 8px;
+  font-size: 12px;
 }
 </style>

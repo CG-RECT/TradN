@@ -4,7 +4,7 @@
       <div>
         <div class="page-title">黄金时间线</div>
         <div class="muted">
-          默认显示今天前后各 3 天；按住鼠标拖动浏览，到达边缘时继续加载
+          默认显示今天前后各 10 天；按住鼠标拖动浏览，到达边缘时继续加载
         </div>
       </div>
       <a-space>
@@ -56,31 +56,68 @@
 
             <div class="day-content" @click="edit(item)">
               <template v-if="item.data">
+                <div class="day-assets day-assets-top">
+                  <template
+                    v-for="(row, rowIndex) in dayLayout(item.data).top"
+                    :key="`top-${rowIndex}`"
+                  >
+                    <div v-if="row.length" class="asset-row">
+                      <template v-for="asset in row" :key="asset.key">
+                        <button
+                          v-if="asset.kind === 'file'"
+                          class="asset image-asset"
+                          type="button"
+                          title="查看当天图片"
+                          @click.stop="previewImage(asset.value)"
+                        >
+                          <img :src="asset.value.thumbnailUrl" loading="lazy" alt="黄金走势图缩略图" />
+                        </button>
+                        <button
+                          v-else
+                          class="asset note-asset"
+                          type="button"
+                          :title="asset.value.summary || asset.value.title"
+                          @click.stop="openNote(asset.value.id)"
+                        >
+                          <strong>{{ asset.value.title }}</strong>
+                          <span>{{ asset.value.summary || "暂无摘要" }}</span>
+                        </button>
+                      </template>
+                    </div>
+                  </template>
+                </div>
                 <p v-if="item.data.timeline.dailyContent" class="daily-summary">
                   {{ item.data.timeline.dailyContent }}
                 </p>
-                <div class="asset-grid">
-                  <button
-                    v-for="file in visibleFiles(item.data.files)"
-                    :key="`file-${file.id}`"
-                    class="asset image-asset"
-                    type="button"
-                    title="查看当天图片"
-                    @click.stop="previewImage(file)"
+                <div class="day-assets day-assets-bottom">
+                  <template
+                    v-for="(row, rowIndex) in dayLayout(item.data).bottom"
+                    :key="`bottom-${rowIndex}`"
                   >
-                    <img :src="file.thumbnailUrl" loading="lazy" alt="黄金走势图缩略图" />
-                  </button>
-                  <button
-                    v-for="note in visibleNotes(item.data.notes, item.data.files)"
-                    :key="`note-${note.id}`"
-                    class="asset note-asset"
-                    type="button"
-                    :title="note.summary || note.title"
-                    @click.stop="openNote(note.id)"
-                  >
-                    <strong>{{ note.title }}</strong>
-                    <span>{{ note.summary || "暂无摘要" }}</span>
-                  </button>
+                    <div v-if="row.length" class="asset-row">
+                      <template v-for="asset in row" :key="asset.key">
+                        <button
+                          v-if="asset.kind === 'file'"
+                          class="asset image-asset"
+                          type="button"
+                          title="查看当天图片"
+                          @click.stop="previewImage(asset.value)"
+                        >
+                          <img :src="asset.value.thumbnailUrl" loading="lazy" alt="黄金走势图缩略图" />
+                        </button>
+                        <button
+                          v-else
+                          class="asset note-asset"
+                          type="button"
+                          :title="asset.value.summary || asset.value.title"
+                          @click.stop="openNote(asset.value.id)"
+                        >
+                          <strong>{{ asset.value.title }}</strong>
+                          <span>{{ asset.value.summary || "暂无摘要" }}</span>
+                        </button>
+                      </template>
+                    </div>
+                  </template>
                 </div>
                 <div v-if="hiddenCount(item.data) > 0" class="more-line">
                   另有 {{ hiddenCount(item.data) }} 项，点击日期查看
@@ -146,6 +183,7 @@
               mode="multiple"
               :options="noteOptions"
               placeholder="选择笔记模块中的已有笔记"
+              :dropdown-match-select-width="false"
             />
           </a-form-item>
           <a-divider orientation="left">或在保存时新建一篇笔记并关联</a-divider>
@@ -183,8 +221,7 @@ import { isTimelineInteractiveTarget } from "../../utils/timelineInteraction";
 const INITIAL_SIDE_DAYS = 10;
 const EDGE_LOAD_DAYS = 10;
 const MAX_CONTENT_ROWS = 5;
-const ASSETS_PER_ROW = 2;
-const MAX_VISIBLE_ASSETS = MAX_CONTENT_ROWS * ASSETS_PER_ROW;
+const MAX_VISIBLE_ASSETS = MAX_CONTENT_ROWS * 2;
 const MIN_ZOOM = 0.7;
 const MAX_ZOOM = 1.6;
 const ZOOM_STEP = 0.15;
@@ -216,7 +253,7 @@ let dragMoved = false;
 let positioning = false;
 
 const baseCellWidth = computed(() =>
-  Math.max(150, (viewportWidth.value - 40 - GAP * 6) / 7),
+  Math.max(280, (viewportWidth.value - 40 - GAP * 6) / 7),
 );
 const cellWidth = computed(() => baseCellWidth.value * zoom.value);
 const dayStyle = computed(() => ({
@@ -354,12 +391,35 @@ function weekday(date: string) {
   return `周${["日", "一", "二", "三", "四", "五", "六"][dayjs(date).day()]}`;
 }
 
-function visibleFiles(files: any[]) {
-  return files.slice(0, MAX_VISIBLE_ASSETS);
-}
-
-function visibleNotes(notes: any[], files: any[]) {
-  return notes.slice(0, Math.max(0, MAX_VISIBLE_ASSETS - files.length));
+/**
+ * 将当天图片和笔记按“当前累计高度最小的行”分配，形成最多五行的瀑布流。
+ * 估算高度后再分配，能让长标题/摘要优先落到空间更充足的行，避免单行被撑得过高。
+ */
+function dayLayout(data: any) {
+  const assets = [
+    ...data.files.map((file: any) => ({ kind: "file", value: file, key: `file-${file.id}` })),
+    ...data.notes.map((note: any) => ({ kind: "note", value: note, key: `note-${note.id}` })),
+  ].slice(0, MAX_VISIBLE_ASSETS);
+  const rows: Array<{ height: number; assets: any[] }> = Array.from(
+    { length: MAX_CONTENT_ROWS },
+    () => ({ height: 0, assets: [] }),
+  );
+  assets.forEach((asset: any) => {
+    const estimatedHeight =
+      asset.kind === "file"
+        ? 120
+        : Math.min(180, 66 + String(asset.value.summary || asset.value.title || "").length * 1.5);
+    const target = rows.reduce(
+      (shortest, row, index) => (row.height < rows[shortest].height ? index : shortest),
+      0,
+    );
+    rows[target].assets.push(asset);
+    rows[target].height += estimatedHeight + 8;
+  });
+  return {
+    top: rows.slice(0, 2).map((row) => row.assets),
+    bottom: rows.slice(2).map((row) => row.assets),
+  };
 }
 
 function hiddenCount(data: any) {
@@ -422,11 +482,12 @@ async function save() {
       });
     }
     if (uploadList.value.length > 0) {
-      // 文件关系建立后再次同步时间线，使每日汇总笔记立即包含新上传的图片。
+      // 文件关系建立后重新读取版本，再同步一次，使每日汇总笔记立即包含新图片。
+      const refreshed: any = await http.get(`/timelines/${current.date}`);
       await http.put(`/timelines/${current.date}`, {
         dailyContent: editor.dailyContent,
         noteIds,
-        version: saved.version,
+        version: refreshed.timeline.version,
       });
     }
     editorOpen.value = false;
@@ -518,7 +579,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 }
 
 .timeline-grid {
-  --date-line-top: 58px;
+  --date-line-top: 258px;
   position: relative;
   display: flex;
   align-items: flex-start;
@@ -543,8 +604,12 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 }
 
 .date-button {
+  position: absolute;
+  z-index: 3;
+  top: 205px;
+  left: 0;
   width: 100%;
-  height: 46px;
+  height: 42px;
   display: flex;
   justify-content: center;
   align-items: baseline;
@@ -553,6 +618,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   background: transparent;
   border: 0;
   cursor: pointer;
+  background: #fff;
 }
 
 .date-button strong {
@@ -564,11 +630,13 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 }
 
 .timeline-dot {
-  position: relative;
+  position: absolute;
   z-index: 2;
+  top: 251px;
+  left: calc(50% - 6px);
   width: 12px;
   height: 12px;
-  margin: 6px auto 12px;
+  margin: 0;
   border: 3px solid #fff;
   border-radius: 50%;
   background: #d4a72c;
@@ -585,7 +653,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 }
 
 .day-content {
-  min-height: 190px;
+  min-height: 480px;
   padding: 12px;
   border: 1px solid #ececec;
   border-radius: 9px;
@@ -608,20 +676,34 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   color: #595959;
 }
 
-/* 单日图片和笔记在宽度不足时自动换行，最多展示五行。 */
-.asset-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(5, 62px);
-  grid-auto-flow: row;
-  gap: 6px;
-  max-height: 334px;
-  overflow: hidden;
+/* 日期线居中，资料分布在日期线上下两侧；每行由算法分配到当前较矮的行。 */
+.day-assets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.day-assets-top {
+  justify-content: flex-end;
+  min-height: 200px;
+  padding-bottom: 30px;
+}
+
+.day-assets-bottom {
+  min-height: 200px;
+  padding-top: 30px;
+}
+
+.asset-row {
+  display: flex;
+  gap: 8px;
+  min-height: 72px;
 }
 
 .asset {
   min-width: 0;
-  height: 62px;
+  flex: 1;
+  min-height: 72px;
   padding: 0;
   border: 1px solid #e8e8e8;
   border-radius: 6px;
@@ -640,13 +722,14 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   padding: 6px;
   text-align: left;
   background: #fff8df;
+  white-space: normal;
 }
 
 .note-asset strong,
 .note-asset span {
   display: block;
   overflow: hidden;
-  white-space: nowrap;
+  white-space: normal;
   text-overflow: ellipsis;
 }
 
@@ -684,9 +767,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .text-note-section { border-left: 3px solid #3b82f6; }
 .image-note-section { border-left: 3px solid #d4a72c; }
 .linked-note-section { border-left: 3px solid #8b5cf6; }
-.day-content:has(.asset-grid) { background: #fffdf6; }
+.day-content:has(.day-assets) { background: #fffdf6; }
 .day-content:has(.daily-summary) { background: #f8fbff; }
-.day-content:has(.asset-grid):hover { border-color: #d4a72c; }
+.day-content:has(.day-assets):hover { border-color: #d4a72c; }
 
 .existing {
   display: flex;

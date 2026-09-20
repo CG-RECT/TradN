@@ -51,7 +51,7 @@ const collapsed = ref(true);
 
 .search-panel-main {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 18px;
 }
 
@@ -60,6 +60,7 @@ const collapsed = ref(true);
   flex: 1;
   flex-wrap: wrap;
   align-items: center;
+  min-height: 38px;
   gap: 12px 16px;
   min-width: 0;
 }
@@ -79,6 +80,7 @@ const collapsed = ref(true);
 .search-actions {
   display: flex;
   flex: none;
+  align-items: center;
   gap: 8px;
 }
 

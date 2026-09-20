@@ -59,7 +59,11 @@
           </template>
           <template v-else-if="column.key === 'tags'">
             <a-space wrap>
-              <a-tag v-for="tag in record.tags || []" :key="tag.id" color="purple">
+              <a-tag
+                v-for="tag in record.tags || []"
+                :key="tag.id"
+                :color="tagColor(tag.tagName)"
+              >
                 {{ tag.tagName }}
               </a-tag>
               <span v-if="!record.tags?.length" class="muted">未设置</span>
@@ -162,6 +166,12 @@ function create() {
 
 function open(id: string, mode: "view" | "edit") {
   router.push({ path: `/notes/${id}`, query: { mode } });
+}
+
+function tagColor(tagName: string) {
+  const colors = ["blue", "cyan", "green", "orange", "purple", "magenta", "gold"];
+  const hash = Array.from(tagName).reduce((sum, character) => sum + character.charCodeAt(0), 0);
+  return colors[hash % colors.length];
 }
 
 onMounted(async () => {

@@ -172,7 +172,6 @@
       <a-button @click="back">关闭</a-button>
       <a-button v-if="isReadOnly" type="primary" @click="switchToEdit">进入编辑</a-button>
       <template v-else>
-        <a-button @click="back">取消</a-button>
         <a-button type="primary" @click="savePlan">
           {{ isNew ? "保存并创建" : "保存开仓前问卷" }}
         </a-button>
