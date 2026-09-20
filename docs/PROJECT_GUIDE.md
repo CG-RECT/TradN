@@ -4,15 +4,18 @@
 
 项目的建设初衷、长期方向和新增需求评估原则见 [`PRODUCT_VISION.md`](./PRODUCT_VISION.md)。后续产品建议、业务设计和代码实现都应以该文档为长期约束。
 
+可借鉴的开源项目、许可证提醒和建议演进路线见 [`REFERENCE_PROJECTS.md`](./REFERENCE_PROJECTS.md)。
+
 ## 一、快速阅读顺序
 
 1. `docs/PRODUCT_VISION.md`：产品初衷、长期方向和新需求判断原则。
-2. `README.md`：技术栈、环境变量和启动方式。
-3. `docs/LOCAL_START.md`：Windows 本地一键启动/停止。
-4. `docs/BUSINESS_AND_DATABASE.md`：业务规则、权限和迁移基线。
-5. `tradn-backend/AGENTS.md`、`tradn-web/AGENTS.md`：对应端的编码约束。
-6. 后端 `src/main/resources/db/migration`：实际数据库结构与初始化数据。
-7. 前端 `src/router`、`src/layouts/AppLayout.vue` 和 `src/views`：路由、权限菜单和页面实现。
+2. `docs/REFERENCE_PROJECTS.md`：开源参考项目、许可证提醒和建议路线。
+3. `README.md`：技术栈、环境变量和启动方式。
+4. `docs/LOCAL_START.md`：Windows 本地一键启动/停止。
+5. `docs/BUSINESS_AND_DATABASE.md`：业务规则、权限和迁移基线。
+6. `tradn-backend/AGENTS.md`、`tradn-web/AGENTS.md`：对应端的编码约束。
+7. 后端 `src/main/resources/db/migration`：实际数据库结构与初始化数据。
+8. 前端 `src/router`、`src/layouts/AppLayout.vue` 和 `src/views`：路由、权限菜单和页面实现。
 
 ## 二、功能地图
 
