@@ -2,14 +2,17 @@
 
 这份文档是面向开发者、运维人员和后续 AI 对话的入口，描述功能边界、代码位置、数据关系及运行约定。实现有变化时，先修改本文和 `BUSINESS_AND_DATABASE.md`，再修改代码或数据库迁移。
 
+项目的建设初衷、长期方向和新增需求评估原则见 [`PRODUCT_VISION.md`](./PRODUCT_VISION.md)。后续产品建议、业务设计和代码实现都应以该文档为长期约束。
+
 ## 一、快速阅读顺序
 
-1. `README.md`：技术栈、环境变量和启动方式。
-2. `docs/LOCAL_START.md`：Windows 本地一键启动/停止。
-3. `docs/BUSINESS_AND_DATABASE.md`：业务规则、权限和迁移基线。
-4. `tradn-backend/AGENTS.md`、`tradn-web/AGENTS.md`：对应端的编码约束。
-5. 后端 `src/main/resources/db/migration`：实际数据库结构与初始化数据。
-6. 前端 `src/router`、`src/layouts/AppLayout.vue` 和 `src/views`：路由、权限菜单和页面实现。
+1. `docs/PRODUCT_VISION.md`：产品初衷、长期方向和新需求判断原则。
+2. `README.md`：技术栈、环境变量和启动方式。
+3. `docs/LOCAL_START.md`：Windows 本地一键启动/停止。
+4. `docs/BUSINESS_AND_DATABASE.md`：业务规则、权限和迁移基线。
+5. `tradn-backend/AGENTS.md`、`tradn-web/AGENTS.md`：对应端的编码约束。
+6. 后端 `src/main/resources/db/migration`：实际数据库结构与初始化数据。
+7. 前端 `src/router`、`src/layouts/AppLayout.vue` 和 `src/views`：路由、权限菜单和页面实现。
 
 ## 二、功能地图
 
