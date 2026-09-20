@@ -1,0 +1,72 @@
+server:
+  port: ${APP_PORT:8080}
+  servlet:
+    context-path: /api
+
+spring:
+  # 本地开发时自动读取项目根目录或后端目录上一级的 .env；文件不存在时不影响容器启动。
+  config:
+    import:
+      - optional:file:./.env[.properties]
+      - optional:file:../.env[.properties]
+  application:
+    name: tradn
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:tradn}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:tradn}
+    password: ${MYSQL_PASSWORD:tradn}
+    hikari:
+      maximum-pool-size: ${MYSQL_POOL_SIZE:10}
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DATABASE:0}
+    timeout: 3s
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  servlet:
+    multipart:
+      max-file-size: ${UPLOAD_MAX_SIZE:20MB}
+      max-request-size: ${UPLOAD_MAX_SIZE:20MB}
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: never
+    properties:
+      org.quartz.scheduler.instanceId: AUTO
+      org.quartz.jobStore.isClustered: true
+      org.quartz.jobStore.tablePrefix: QRTZ_
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+tradn:
+  jwt:
+    secret: ${TOKEN_SECRET:change-this-development-secret-at-least-32-bytes}
+    ttl-seconds: ${TOKEN_TTL:28800}
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:tradn}
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    initial-password: ${ADMIN_INITIAL_PASSWORD:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

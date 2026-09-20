@@ -22,3 +22,23 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Build output
+tradn-backend/target/
+tradn-web/dist/
+tradn-web/node_modules/
+tradn-web/*.tsbuildinfo
+tradn-web/vite.config.js
+tradn-web/vite.config.d.ts
+
+# Local environment and data
+.env
+*.local
+data/
+logs/
+deploy/runtime/

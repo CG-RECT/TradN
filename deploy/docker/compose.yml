@@ -1,0 +1,71 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    command: ["--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci","--default-time-zone=+08:00"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    healthcheck: { test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD}"], interval: 10s, timeout: 5s, retries: 20 }
+    networks: [tradn]
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: ["redis-server","--appendonly","yes","--requirepass","${REDIS_PASSWORD}"]
+    volumes: ["redis-data:/data"]
+    healthcheck: { test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"], interval: 10s, timeout: 5s, retries: 20 }
+    networks: [tradn]
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment: { MINIO_ROOT_USER: "${MINIO_ACCESS_KEY}", MINIO_ROOT_PASSWORD: "${MINIO_SECRET_KEY}" }
+    volumes: ["minio-data:/data"]
+    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"], interval: 10s, timeout: 5s, retries: 20 }
+    networks: [tradn]
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on: { minio: { condition: service_healthy } }
+    entrypoint: ["/bin/sh","-c"]
+    command: ["mc alias set local http://minio:9000 $${MINIO_ACCESS_KEY} $${MINIO_SECRET_KEY} && mc mb --ignore-existing local/$${MINIO_BUCKET} && mc anonymous set none local/$${MINIO_BUCKET}"]
+    environment: { MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY}", MINIO_SECRET_KEY: "${MINIO_SECRET_KEY}", MINIO_BUCKET: "${MINIO_BUCKET}" }
+    networks: [tradn]
+  tradn-api:
+    build: { context: ../../tradn-backend }
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      TOKEN_SECRET: ${TOKEN_SECRET}
+      TOKEN_TTL: ${TOKEN_TTL}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD}
+      UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE}
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    healthcheck: { test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/actuator/health"], interval: 15s, timeout: 5s, retries: 20 }
+    networks: [tradn]
+  tradn-web:
+    build: { context: ../../tradn-web }
+    restart: unless-stopped
+    ports: ["80:80"]
+    depends_on: { tradn-api: { condition: service_healthy } }
+    networks: [tradn]
+volumes: { mysql-data: {}, redis-data: {}, minio-data: {} }
+networks: { tradn: { driver: bridge } }
