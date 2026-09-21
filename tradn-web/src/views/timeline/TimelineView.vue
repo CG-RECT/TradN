@@ -823,6 +823,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .timeline-grid::before {
   content: "";
   position: absolute;
+  z-index: 2;
   left: 0;
   right: 0;
   top: var(--track-y);
@@ -837,6 +838,11 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   left: 0;
   width: 100%;
   height: 76px;
+  border-top: 1px solid #e5ebf3;
+  border-bottom: 1px solid #e5ebf3;
+  border-radius: 8px;
+  background: #f7f9fc;
+  box-shadow: inset 0 1px 0 #ffffff, inset 0 -1px 0 #ffffff;
 }
 
 .timeline-grid .day-column {
@@ -854,7 +860,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 
 .date-button {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
   top: calc(var(--track-y) - 58px);
   left: 0;
   width: 100%;
@@ -880,7 +886,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 
 .timeline-dot {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   top: calc(var(--track-y) - 6px);
   left: calc(50% - 6px);
   width: 12px;
