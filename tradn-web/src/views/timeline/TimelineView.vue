@@ -83,7 +83,6 @@
                 ×
               </button>
               <template v-if="card.entry.entryType === 'TEXT'">
-                <span class="entry-type">文字备注</span>
                 <span class="entry-content">{{ card.entry.content }}</span>
               </template>
               <template v-else-if="card.entry.entryType === 'IMAGE'">
@@ -94,6 +93,9 @@
                 <span class="entry-type">笔记备注</span>
                 <strong>{{ card.entry.note?.title || "关联笔记" }}</strong>
                 <span v-if="card.entry.note?.summary" class="entry-content">{{ card.entry.note.summary }}</span>
+                <span v-if="card.entry.note?.summary" class="note-summary-tooltip">
+                  {{ card.entry.note.summary }}
+                </span>
               </template>
             </article>
           </template>
@@ -165,6 +167,37 @@
         <a-button type="primary" :loading="saving" @click="saveEntry">保存</a-button>
       </template>
     </a-modal>
+
+    <a-modal
+      v-model:open="noteViewerOpen"
+      title="笔记详情"
+      width="820px"
+      :footer="null"
+    >
+      <a-spin :spinning="noteViewerLoading">
+        <div v-if="noteViewer" class="timeline-note-viewer">
+          <h2>{{ noteViewer.title || "未命名笔记" }}</h2>
+          <div class="timeline-note-viewer-tags">
+            <a-tag v-for="tag in noteViewer.tags || []" :key="tag.id || tag.tagName">
+              {{ tag.tagName }}
+            </a-tag>
+            <span v-if="!noteViewer.tags?.length" class="muted">未设置标签</span>
+          </div>
+          <div v-if="noteViewer.summary" class="timeline-note-viewer-summary">
+            <strong>摘要</strong>
+            <p>{{ noteViewer.summary }}</p>
+          </div>
+          <section v-if="noteViewer.generatedContent" class="timeline-note-viewer-section">
+            <h3>系统自动汇总</h3>
+            <MdPreview :model-value="noteViewer.generatedContent" />
+          </section>
+          <section class="timeline-note-viewer-section">
+            <h3>笔记内容</h3>
+            <MdPreview :model-value="noteViewer.manualContent || '暂无内容'" />
+          </section>
+        </div>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -172,7 +205,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import dayjs from "dayjs";
 import { message, Modal } from "ant-design-vue";
-import { useRouter } from "vue-router";
+import { MdPreview } from "md-editor-v3";
 import http from "../../api/http";
 import { isTimelineInteractiveTarget } from "../../utils/timelineInteraction";
 
@@ -190,7 +223,6 @@ const BOTTOM_CONTENT_GAP = 36;
 const BOTTOM_PADDING = 24;
 const EMPTY_HINT_HEIGHT = 112;
 
-const router = useRouter();
 const shell = ref<HTMLElement>();
 const viewportWidth = ref(1200);
 const loadedFrom = ref(dayjs().subtract(INITIAL_SIDE_DAYS, "day"));
@@ -202,6 +234,9 @@ const loadingPrevious = ref(false);
 const loadingNext = ref(false);
 const previewVisible = ref(false);
 const previewUrl = ref("");
+const noteViewerOpen = ref(false);
+const noteViewerLoading = ref(false);
+const noteViewer = ref<any>(null);
 const zoom = ref(1);
 const dragging = ref(false);
 const current = reactive<any>({ date: "", data: null });
@@ -433,7 +468,8 @@ function cardWidth(entry: any) {
 function cardHeight(entry: any) {
   if (entry.entryType === "IMAGE") return imageCardSize(entry).height;
   const length = String(entry.content || entry.note?.summary || entry.note?.title || "").length;
-  return Math.min(132, Math.max(82, 70 + Math.ceil(length / 42) * 18));
+  const base = entry.entryType === "NOTE" ? 58 : 48;
+  return Math.min(132, Math.max(base, base + Math.ceil(length / 42) * 18));
 }
 
 /** 保留图片原始宽高比，并把超宽图、竖图约束在适合浏览的卡片范围内。 */
@@ -559,13 +595,22 @@ function endDrag(event: PointerEvent) {
 function handleTimelineWheel(event: WheelEvent) {
   if (!shell.value) return;
   const target = event.target as HTMLElement | null;
-  const isDateTrack = Boolean(
+  const isDateControl = Boolean(
     target?.closest(
       ".date-track-wheel-zone, .date-button, .timeline-dot, .date-add-button",
     ),
   );
+  const isEmptyAddHint = Boolean(target?.closest(".day-add-hint"));
+  const isEntryCard = Boolean(target?.closest(".timeline-entry-card"));
+  const shellRect = shell.value.getBoundingClientRect();
+  const gridY = event.clientY - shellRect.top - 18 + shell.value.scrollTop;
+  const isTrackBand =
+    !isEmptyAddHint &&
+    !isEntryCard &&
+    gridY >= layoutPlan.value.trackY - 76 &&
+    gridY <= layoutPlan.value.trackY + 76;
   // 只有日期轨道接管垂直滚轮，卡片和其他空白区域保留页面的纵向滚动体验。
-  if (!isDateTrack) return;
+  if (!isDateControl && !isTrackBand) return;
   event.preventDefault();
   shell.value.scrollLeft +=
     Math.abs(event.deltaX) > Math.abs(event.deltaY)
@@ -746,7 +791,24 @@ function changePreview(visible: boolean) {
 
 function openNote(noteId: string) {
   if (dragMoved) return;
-  router.push({ path: `/notes/${noteId}`, query: { mode: "view" } });
+  if (!noteId) {
+    message.warning("关联笔记不存在");
+    return;
+  }
+  noteViewerOpen.value = true;
+  noteViewer.value = null;
+  noteViewerLoading.value = true;
+  http.get(`/notes/${noteId}`)
+    .then((data: any) => {
+      noteViewer.value = data;
+    })
+    .catch(() => {
+      message.error("笔记详情加载失败");
+      noteViewerOpen.value = false;
+    })
+    .finally(() => {
+      noteViewerLoading.value = false;
+    });
 }
 
 onMounted(async () => {
@@ -834,15 +896,16 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .date-track-wheel-zone {
   position: absolute;
   z-index: 1;
-  top: calc(var(--track-y) - 58px);
+  top: calc(var(--track-y) - 76px);
   left: 0;
   width: 100%;
-  height: 76px;
+  height: 152px;
   border-top: 1px solid #e5ebf3;
   border-bottom: 1px solid #e5ebf3;
   border-radius: 8px;
   background: #f7f9fc;
   box-shadow: inset 0 1px 0 #ffffff, inset 0 -1px 0 #ffffff;
+  pointer-events: none;
 }
 
 .timeline-grid .day-column {
@@ -870,10 +933,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   align-items: baseline;
   gap: 8px;
   color: #6b5517;
-  background: transparent;
   border: 0;
   cursor: pointer;
-  background: #fff;
+  background: transparent;
 }
 
 .date-button strong {
@@ -942,7 +1004,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   justify-content: center;
   gap: 5px;
   padding: 12px 14px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #e0e5ec;
   border-radius: 10px;
   background: #f8fbff;
@@ -988,9 +1050,9 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   display: block;
 }
 
-.entry-text { background: #f8fbff; }
+.entry-text { padding: 8px 10px; justify-content: flex-start; gap: 2px; background: #f8fbff; }
 .entry-image { padding: 6px; background: #fffdf6; }
-.entry-note { background: #fff8df; }
+.entry-note { padding: 8px 10px; justify-content: flex-start; gap: 3px; background: #fff8df; }
 
 .timeline-entry-card img {
   width: 100%;
@@ -1011,6 +1073,76 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
+}
+
+.entry-note .entry-content {
+  -webkit-line-clamp: 2;
+}
+
+.note-summary-tooltip {
+  position: absolute;
+  z-index: 8;
+  display: none;
+  width: min(320px, 30vw);
+  max-height: 96px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid #d6e0ee;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 5px 16px #1f293526;
+  color: #536172;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.side-bottom .note-summary-tooltip {
+  top: calc(100% + 6px);
+  left: 0;
+}
+
+.side-top .note-summary-tooltip {
+  bottom: calc(100% + 6px);
+  left: 0;
+}
+
+.timeline-entry-card:hover .note-summary-tooltip {
+  display: block;
+}
+
+.timeline-note-viewer h2 {
+  margin: 0 0 12px;
+  color: #172b4d;
+}
+
+.timeline-note-viewer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.timeline-note-viewer-summary {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f7f9fc;
+  color: #536172;
+}
+
+.timeline-note-viewer-summary p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
+.timeline-note-viewer-section {
+  margin-top: 18px;
+}
+
+.timeline-note-viewer-section h3 {
+  margin-bottom: 8px;
+  color: #172b4d;
 }
 
 .today .date-button strong {
