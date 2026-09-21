@@ -34,26 +34,27 @@
         class="timeline-shell"
         :class="{ dragging }"
         @scroll="handleScroll"
-        @wheel="scrollHorizontally"
+        @wheel="handleTimelineWheel"
         @pointerdown="startDrag"
         @pointermove="dragTimeline"
         @pointerup="endDrag"
         @pointercancel="endDrag"
       >
-        <div class="timeline-grid" :style="{ width: `${gridWidth}px`, height: `${gridHeight}px` }">
+        <div class="timeline-grid" :style="gridStyle">
+          <div class="date-track-wheel-zone" aria-hidden="true" />
           <article
-            v-for="item in days"
+            v-for="(item, index) in days"
             :key="item.date"
             class="day-column"
             :class="{ today: item.date === todayValue }"
-            :style="dayStyle"
+            :style="dayColumnStyle(index)"
           >
-            <button class="date-button" type="button" @click="openEditor(item.date)">
+            <button class="date-button" type="button" @click.stop="openEditor(item.date)">
               <strong>{{ item.date.slice(5) }}</strong>
               <span>{{ weekday(item.date) }}</span>
             </button>
             <div class="timeline-dot" />
-            <button class="date-add-button" type="button" title="添加当天备注" @click="openEditor(item.date)">
+            <button class="date-add-button" type="button" title="继续添加当天备注" @click.stop="openEditor(item.date)">
               +
             </button>
 
@@ -64,13 +65,23 @@
           </article>
 
           <template v-for="card in layoutEntries" :key="card.key">
-            <button
+            <article
               class="timeline-entry-card"
-              :class="[`lane-${card.lane}`, `entry-${card.entry.entryType.toLowerCase()}`]"
+              :class="[`side-${card.side}`, `row-${card.row}`, `entry-${card.entry.entryType.toLowerCase()}`]"
               :style="entryStyle(card)"
-              type="button"
+              tabindex="0"
               @click.stop="handleEntryClick(card.entry)"
+              @keydown.enter.stop="handleEntryClick(card.entry)"
             >
+              <button
+                v-if="!card.entry.legacy"
+                class="entry-delete-button"
+                type="button"
+                title="删除这条备注"
+                @click.stop="removeEntry(card.entry, card.date)"
+              >
+                ×
+              </button>
               <template v-if="card.entry.entryType === 'TEXT'">
                 <span class="entry-type">文字备注</span>
                 <span class="entry-content">{{ card.entry.content }}</span>
@@ -84,7 +95,7 @@
                 <strong>{{ card.entry.note?.title || "关联笔记" }}</strong>
                 <span v-if="card.entry.note?.summary" class="entry-content">{{ card.entry.note.summary }}</span>
               </template>
-            </button>
+            </article>
           </template>
         </div>
       </div>
@@ -150,7 +161,6 @@
         </div>
       </a-form>
       <template #footer>
-        <a-button v-if="editor.entryId && editor.entryType === 'TEXT'" danger @click="removeCurrentEntry">删除备注</a-button>
         <a-button @click="closeEditor">关闭</a-button>
         <a-button type="primary" :loading="saving" @click="saveEntry">保存</a-button>
       </template>
@@ -173,7 +183,12 @@ const MIN_ZOOM = 0.7;
 const MAX_ZOOM = 1.6;
 const ZOOM_STEP = 0.15;
 const GAP = 14;
-const LINE_Y = 460;
+const CARD_GAP = 12;
+const TOP_PADDING = 28;
+const DATE_LABEL_GAP = 62;
+const BOTTOM_CONTENT_GAP = 36;
+const BOTTOM_PADDING = 24;
+const EMPTY_HINT_HEIGHT = 112;
 
 const router = useRouter();
 const shell = ref<HTMLElement>();
@@ -219,13 +234,7 @@ const baseCellWidth = computed(() =>
   Math.max(280, (viewportWidth.value - 40 - GAP * 6) / 7),
 );
 const cellWidth = computed(() => baseCellWidth.value * zoom.value);
-const dayStyle = computed(() => ({
-  width: `${cellWidth.value}px`,
-  flexBasis: `${cellWidth.value}px`,
-}));
 const stepWidth = computed(() => cellWidth.value + GAP);
-const gridWidth = computed(() => Math.max(1200, days.value.length * stepWidth.value));
-const gridHeight = computed(() => LINE_Y + 3 * 152 + 120);
 const days = computed(() => {
   const recordMap = new Map(
     records.value.map((item) => [item.timeline.timelineDate, item]),
@@ -237,45 +246,231 @@ const days = computed(() => {
   });
 });
 
-type LayoutCard = { key: string; entry: any; lane: number; left: number; width: number; height: number };
+type TimelineSide = "top" | "bottom";
+type LayoutCard = {
+  key: string;
+  date: string;
+  entry: any;
+  side: TimelineSide;
+  row: number;
+  left: number;
+  width: number;
+  height: number;
+};
 
-const layoutEntries = computed<LayoutCard[]>(() => {
-  const laneEnds = Array.from({ length: MAX_CONTENT_ROWS }, () => -Infinity);
-  const source = days.value.flatMap((day, index) =>
-    (day.data?.entries || []).map((entry: any) => ({ entry, index })),
-  );
-  source.sort((a, b) => a.index - b.index || String(a.entry.created_at || "").localeCompare(String(b.entry.created_at || "")));
-  const result: LayoutCard[] = [];
-  source.forEach(({ entry, index }) => {
-    const width = cardWidth(entry);
-    const center = index * stepWidth.value + cellWidth.value / 2;
-    const left = Math.max(0, center - width / 2);
-    const right = left + width;
-    const preferred = [0, 3, 1, 4, 2, 5];
-    const lane = preferred.find((candidate) => left > laneEnds[candidate] + 10) ?? 5;
-    laneEnds[lane] = right;
-    result.push({ key: `${entry.entryType}-${entry.id}`, entry, lane, left, width, height: cardHeight(entry) });
+type GroupCard = {
+  entry: any;
+  row: number;
+  offset: number;
+  rowWidth: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * 时间线按日期而不是按单张卡片选择上下侧，保证同一天的备注始终聚在同一侧。
+ * 每侧最多三行；优先横向排满一行，只有宽度不足时才增加行数，因此内容少时不会留下大块空白。
+ */
+const layoutPlan = computed(() => {
+  const sideEnds: Record<TimelineSide, number[]> = {
+    top: Array.from({ length: 3 }, () => -Infinity),
+    bottom: Array.from({ length: 3 }, () => -Infinity),
+  };
+  const sideUse: Record<TimelineSide, number> = { top: 0, bottom: 0 };
+  const rowHeights: Record<TimelineSide, number[]> = {
+    top: [0, 0, 0],
+    bottom: [0, 0, 0],
+  };
+  const cards: LayoutCard[] = [];
+
+  days.value.forEach((day, dayIndex) => {
+    const entries = [...(day.data?.entries || [])].sort((a: any, b: any) =>
+      String(a.created_at || "").localeCompare(String(b.created_at || "")),
+    );
+    if (!entries.length) return;
+
+    const groupCards = arrangeDayEntries(entries);
+    const rowCount = Math.max(...groupCards.map((card) => card.row)) + 1;
+    const center = dayIndex * stepWidth.value + cellWidth.value / 2;
+    const candidates: Array<{
+      side: TimelineSide;
+      rowOffset: number;
+      overlap: number;
+      preferredPenalty: number;
+    }> = [];
+    const preferredSide: TimelineSide = dayIndex % 2 === 0 ? "top" : "bottom";
+
+    (["top", "bottom"] as TimelineSide[]).forEach((side) => {
+      for (let rowOffset = 0; rowOffset <= 3 - rowCount; rowOffset += 1) {
+        const overlap = groupCards.reduce((total, card) => {
+          const row = card.row + rowOffset;
+          const rowLeft = center - card.rowWidth / 2 + card.offset;
+          return total + Math.max(0, sideEnds[side][row] + CARD_GAP - rowLeft);
+        }, 0);
+        candidates.push({
+          side,
+          rowOffset,
+          overlap,
+          preferredPenalty:
+            sideUse[side] * 2 +
+            (side === preferredSide ? 0 : 1) +
+            rowOffset * 0.1,
+        });
+      }
+    });
+
+    candidates.sort((a, b) =>
+      a.overlap - b.overlap || a.preferredPenalty - b.preferredPenalty,
+    );
+    const selected = candidates[0];
+    sideUse[selected.side] += 1;
+
+    // 当前日期在既有卡片右侧发生冲突时整体右移，同一日期的卡片仍保持相对位置和同侧关系。
+    const requiredShift = groupCards.reduce((shift, card) => {
+      const row = card.row + selected.rowOffset;
+      const intendedLeft = center - card.rowWidth / 2 + card.offset;
+      return Math.max(
+        shift,
+        sideEnds[selected.side][row] + CARD_GAP - intendedLeft,
+        -intendedLeft,
+      );
+    }, 0);
+
+    groupCards.forEach((card) => {
+      const row = card.row + selected.rowOffset;
+      const left = center - card.rowWidth / 2 + card.offset + requiredShift;
+      sideEnds[selected.side][row] = left + card.width;
+      rowHeights[selected.side][row] = Math.max(
+        rowHeights[selected.side][row],
+        card.height,
+      );
+      cards.push({
+        key: `${card.entry.entryType}-${card.entry.id}`,
+        date: day.date,
+        entry: card.entry,
+        side: selected.side,
+        row,
+        left,
+        width: card.width,
+        height: card.height,
+      });
+    });
   });
-  return result;
+
+  const topRows = usedRowCount(rowHeights.top);
+  const bottomRows = usedRowCount(rowHeights.bottom);
+  const topHeight = rowsHeight(rowHeights.top, topRows);
+  const bottomHeight = rowsHeight(rowHeights.bottom, bottomRows);
+  const trackY = TOP_PADDING + topHeight + DATE_LABEL_GAP;
+  const hasEmptyDay = days.value.some((day) => !(day.data?.entries?.length));
+  const contentBelowTrack = Math.max(
+    bottomHeight,
+    hasEmptyDay ? EMPTY_HINT_HEIGHT : 0,
+  );
+  const height =
+    trackY + BOTTOM_CONTENT_GAP + contentBelowTrack + BOTTOM_PADDING;
+
+  return {
+    cards,
+    rowHeights,
+    topRows,
+    bottomRows,
+    trackY,
+    height,
+    maxRight: cards.reduce((value, card) => Math.max(value, card.left + card.width), 0),
+  };
 });
 
+const layoutEntries = computed(() => layoutPlan.value.cards);
+const gridWidth = computed(() =>
+  Math.max(
+    1200,
+    days.value.length * stepWidth.value,
+    layoutPlan.value.maxRight + 24,
+  ),
+);
+const gridStyle = computed(() => ({
+  width: `${gridWidth.value}px`,
+  height: `${layoutPlan.value.height}px`,
+  "--track-y": `${layoutPlan.value.trackY}px`,
+}));
+
+function arrangeDayEntries(entries: any[]): GroupCard[] {
+  const rowWidths = [0, 0, 0];
+  const maxRowWidth = cellWidth.value * 1.85;
+  return entries.map((entry) => {
+    const width = cardWidth(entry);
+    const height = cardHeight(entry);
+    let row = rowWidths.findIndex((value) =>
+      value === 0 || value + CARD_GAP + width <= maxRowWidth,
+    );
+    if (row < 0) {
+      row = rowWidths.indexOf(Math.min(...rowWidths));
+    }
+    const offset = rowWidths[row] === 0 ? 0 : rowWidths[row] + CARD_GAP;
+    rowWidths[row] = offset + width;
+    return { entry, row, offset, rowWidth: 0, width, height };
+  }).map((card) => ({ ...card, rowWidth: rowWidths[card.row] }));
+}
+
+function usedRowCount(heights: number[]) {
+  const last = heights.reduce((value, height, index) => height > 0 ? index : value, -1);
+  return last + 1;
+}
+
+function rowsHeight(heights: number[], count: number) {
+  return heights.slice(0, count).reduce((sum, height) => sum + height, 0) +
+    Math.max(0, count - 1) * CARD_GAP;
+}
+
 function cardWidth(entry: any) {
+  if (entry.entryType === "IMAGE") return imageCardSize(entry).width;
   const length = String(entry.content || entry.note?.title || "").length;
-  const desired = entry.entryType === "IMAGE" ? cellWidth.value * 1.35 : 280 + length * 4;
+  const desired = 240 + length * 4;
   return Math.min(cellWidth.value * 2.4, Math.max(cellWidth.value * 0.86, desired));
 }
 
 function cardHeight(entry: any) {
-  if (entry.entryType === "IMAGE") return 126;
+  if (entry.entryType === "IMAGE") return imageCardSize(entry).height;
   const length = String(entry.content || entry.note?.summary || entry.note?.title || "").length;
   return Math.min(132, Math.max(82, 70 + Math.ceil(length / 42) * 18));
 }
 
+/** 保留图片原始宽高比，并把超宽图、竖图约束在适合浏览的卡片范围内。 */
+function imageCardSize(entry: any) {
+  const file = entry.file || {};
+  const imageWidth = Number(file.image_width || file.imageWidth || 16);
+  const imageHeight = Number(file.image_height || file.imageHeight || 9);
+  const ratio = Math.min(2.6, Math.max(0.55, imageWidth / imageHeight || 16 / 9));
+  const maxWidth = Math.min(cellWidth.value * 1.55, 520);
+  const maxHeight = 240;
+  let width = Math.min(maxWidth, maxHeight * ratio);
+  let height = width / ratio;
+  if (height < 112) {
+    height = 112;
+    width = Math.min(maxWidth, height * ratio);
+  }
+  return { width: Math.round(width), height: Math.round(height) };
+}
+
 function entryStyle(card: LayoutCard) {
-  const top = card.lane < 3
-    ? LINE_Y - (card.lane + 1) * 152 + 10
-    : LINE_Y + (card.lane - 3) * 152 + 24;
+  const heights = layoutPlan.value.rowHeights[card.side];
+  const precedingHeight = heights
+    .slice(0, card.row)
+    .reduce((sum, height) => sum + height, 0);
+  const top = card.side === "top"
+    ? layoutPlan.value.trackY - DATE_LABEL_GAP - precedingHeight -
+      card.row * CARD_GAP - card.height
+    : layoutPlan.value.trackY + BOTTOM_CONTENT_GAP + precedingHeight +
+      card.row * CARD_GAP;
   return { left: `${card.left}px`, width: `${card.width}px`, height: `${card.height}px`, top: `${top}px` };
+}
+
+function dayColumnStyle(index: number) {
+  return {
+    left: `${index * stepWidth.value}px`,
+    width: `${cellWidth.value}px`,
+  };
 }
 
 async function fetchRange(from: dayjs.Dayjs, to: dayjs.Dayjs) {
@@ -361,10 +556,21 @@ function endDrag(event: PointerEvent) {
   handleScroll();
 }
 
-function scrollHorizontally(event: WheelEvent) {
-  if (!shell.value || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+function handleTimelineWheel(event: WheelEvent) {
+  if (!shell.value) return;
+  const target = event.target as HTMLElement | null;
+  const isDateTrack = Boolean(
+    target?.closest(
+      ".date-track-wheel-zone, .date-button, .timeline-dot, .date-add-button",
+    ),
+  );
+  // 只有日期轨道接管垂直滚轮，卡片和其他空白区域保留页面的纵向滚动体验。
+  if (!isDateTrack) return;
   event.preventDefault();
-  shell.value.scrollLeft += event.deltaY;
+  shell.value.scrollLeft +=
+    Math.abs(event.deltaX) > Math.abs(event.deltaY)
+      ? event.deltaX
+      : event.deltaY;
 }
 
 async function adjustZoom(delta: number) {
@@ -511,15 +717,14 @@ async function saveEntry() {
   }
 }
 
-function removeCurrentEntry() {
+function removeEntry(entry: any, date: string) {
   Modal.confirm({
-    title: "删除这条文字备注？",
+    title: "删除这条时间线备注？",
     content: "删除后不可恢复，但不会影响笔记模块中的原始数据。",
     onOk: async () => {
-      await http.delete(`/timelines/${current.date}/entries/${editor.entryId}`);
+      await http.delete(`/timelines/${date}/entries/${entry.id}`);
       message.success("备注已删除");
-      closeEditor();
-      await fetchRange(dayjs(current.date), dayjs(current.date));
+      await fetchRange(dayjs(date), dayjs(date));
     },
   });
 }
@@ -581,7 +786,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   background: #fff;
   border-radius: 10px;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;
   padding: 18px 20px 26px;
   overscroll-behavior-x: contain;
   cursor: grab;
@@ -612,7 +817,6 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .timeline-grid {
   position: relative;
   display: block;
-  --date-line-top: 258px;
   min-width: max-content;
 }
 
@@ -621,9 +825,18 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   position: absolute;
   left: 0;
   right: 0;
-  top: 460px;
+  top: var(--track-y);
   height: 2px;
   background: linear-gradient(90deg, #d4a72c, #f0d98f);
+}
+
+.date-track-wheel-zone {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--track-y) - 58px);
+  left: 0;
+  width: 100%;
+  height: 76px;
 }
 
 .timeline-grid .day-column {
@@ -642,7 +855,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .date-button {
   position: absolute;
   z-index: 3;
-  top: 408px;
+  top: calc(var(--track-y) - 58px);
   left: 0;
   width: 100%;
   height: 42px;
@@ -668,7 +881,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .timeline-dot {
   position: absolute;
   z-index: 2;
-  top: 454px;
+  top: calc(var(--track-y) - 6px);
   left: calc(50% - 6px);
   width: 12px;
   height: 12px;
@@ -682,7 +895,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .date-add-button {
   position: absolute;
   z-index: 5;
-  top: 449px;
+  top: calc(var(--track-y) + 10px);
   left: calc(50% + 12px);
   width: 24px;
   height: 24px;
@@ -695,7 +908,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 
 .day-add-hint {
   position: absolute;
-  top: 496px;
+  top: calc(var(--track-y) + 54px);
   left: 4%;
   width: 92%;
   height: 90px;
@@ -731,12 +944,42 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   color: #243447;
   text-align: left;
   cursor: pointer;
+  outline: none;
 }
 
 .timeline-entry-card:hover {
   z-index: 6;
   border-color: #d4a72c;
   box-shadow: 0 6px 18px #1f293526;
+}
+
+.timeline-entry-card:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+
+.entry-delete-button {
+  position: absolute;
+  z-index: 2;
+  top: 5px;
+  right: 6px;
+  display: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: #8c8c8c;
+  font-size: 18px;
+  line-height: 20px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px #00000020;
+}
+
+.timeline-entry-card:hover .entry-delete-button,
+.entry-delete-button:focus-visible {
+  display: block;
 }
 
 .entry-text { background: #f8fbff; }
@@ -747,7 +990,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   width: 100%;
   height: 100%;
   border-radius: 6px;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .entry-type {
