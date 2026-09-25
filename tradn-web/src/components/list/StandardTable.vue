@@ -6,6 +6,7 @@
     :loading="loading"
     :row-key="rowKey"
     :pagination="pagination"
+    :scroll="scroll"
     @change="$emit('change', $event)"
   >
     <template #bodyCell="slotData">
@@ -22,6 +23,7 @@ withDefaults(
     loading?: boolean;
     rowKey?: string | ((record: unknown) => string);
     pagination?: object | false;
+    scroll?: object;
   }>(),
   { loading: false, rowKey: "id", pagination: false },
 );

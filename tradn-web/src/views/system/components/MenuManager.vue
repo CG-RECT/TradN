@@ -1,16 +1,20 @@
 <template>
   <div>
-    <div class="query-card">
-      <a-form layout="inline">
-        <a-form-item label="菜单名称/权限码">
+    <SearchPanel @search="load" @reset="resetQuery">
+      <div class="search-field">
+        <span class="search-field-label">菜单名称/权限码</span>
+        <div class="menu-search-control">
           <a-input
             v-model:value="query.keyword"
             allow-clear
             placeholder="请输入关键字"
             @pressEnter="load"
           />
-        </a-form-item>
-        <a-form-item label="节点类型">
+        </div>
+      </div>
+      <div class="search-field">
+        <span class="search-field-label">节点类型</span>
+        <div class="menu-search-control">
           <a-select
             v-model:value="query.menuType"
             allow-clear
@@ -18,83 +22,86 @@
             :options="menuTypeOptions"
             class="type-select"
           />
-        </a-form-item>
-        <a-form-item>
-          <a-space>
-            <a-button type="primary" @click="load">查询</a-button>
-            <a-button @click="resetQuery">重置</a-button>
-          </a-space>
-        </a-form-item>
-      </a-form>
-    </div>
+        </div>
+      </div>
+    </SearchPanel>
 
-    <div class="menu-layout">
-      <section class="tree-panel">
-        <div class="panel-head">
-          <strong>菜单树</strong>
-          <a-button type="primary" size="small" @click="startCreate(null, false)">
+    <div class="content-card menu-manager-card">
+      <ListSectionHeader
+        title="菜单管理"
+        subtitle="使用树形结构维护目录、页面菜单和显示顺序"
+      >
+        <template #actions>
+          <a-button type="primary" @click="startCreate(null, false)">
             新增根节点
           </a-button>
-        </div>
-        <a-spin :spinning="loading">
-          <a-tree
-            v-if="treeData.length"
-            draggable
-            block-node
-            default-expand-all
-            :tree-data="treeData"
-            :selected-keys="selectedKeys"
-            :field-names="{ title: 'menu_name', key: 'id', children: 'children' }"
-            @select="selectNode"
-            @drop="dropNode"
-          >
-            <template #title="node">
-              <div class="tree-title">
-                <span>
-                  <a-tag :color="menuTypeColor(node.menu_type)">
-                    {{ menuTypeLabel(node.menu_type) }}
-                  </a-tag>
-                  {{ node.menu_name }}
-                </span>
-                <a-dropdown :trigger="['click']">
-                  <a class="node-action" @click.stop>操作</a>
-                  <template #overlay>
-                    <a-menu>
-                      <a-menu-item @click="startEdit(node)">编辑</a-menu-item>
-                      <a-menu-item @click="startCreate(node, false)">
-                        新增同级
-                      </a-menu-item>
-                      <a-menu-item @click="startCreate(node, true)">
-                        新增子级
-                      </a-menu-item>
-                      <a-menu-item
-                        :disabled="Number(node.built_in) === 1"
-                        danger
-                        @click="removeNode(node)"
-                      >
-                        删除节点
-                      </a-menu-item>
-                    </a-menu>
-                  </template>
-                </a-dropdown>
-              </div>
-            </template>
-          </a-tree>
-          <a-empty v-else description="暂无菜单" />
-        </a-spin>
-      </section>
+        </template>
+      </ListSectionHeader>
 
-      <section class="detail-panel">
-        <div class="panel-head">
-          <strong>{{ panelTitle }}</strong>
-          <a-button
-            v-if="selected && editorMode === 'view'"
-            size="small"
-            @click="startEdit(selected)"
-          >
-            编辑
-          </a-button>
-        </div>
+      <div class="menu-layout">
+        <section class="tree-panel">
+          <div class="panel-head">
+            <strong>菜单树</strong>
+          </div>
+          <a-spin :spinning="loading">
+            <a-tree
+              v-if="treeData.length"
+              draggable
+              block-node
+              default-expand-all
+              :tree-data="treeData"
+              :selected-keys="selectedKeys"
+              :field-names="{ title: 'menu_name', key: 'id', children: 'children' }"
+              @select="selectNode"
+              @drop="dropNode"
+            >
+              <template #title="node">
+                <div class="tree-title">
+                  <span>
+                    <a-tag :color="menuTypeColor(node.menu_type)">
+                      {{ menuTypeLabel(node.menu_type) }}
+                    </a-tag>
+                    {{ node.menu_name }}
+                  </span>
+                  <a-dropdown :trigger="['click']">
+                    <a class="node-action" @click.stop>操作</a>
+                    <template #overlay>
+                      <a-menu>
+                        <a-menu-item @click="startEdit(node)">编辑</a-menu-item>
+                        <a-menu-item @click="startCreate(node, false)">
+                          新增同级
+                        </a-menu-item>
+                        <a-menu-item @click="startCreate(node, true)">
+                          新增子级
+                        </a-menu-item>
+                        <a-menu-item
+                          :disabled="Number(node.built_in) === 1"
+                          danger
+                          @click="removeNode(node)"
+                        >
+                          删除节点
+                        </a-menu-item>
+                      </a-menu>
+                    </template>
+                  </a-dropdown>
+                </div>
+              </template>
+            </a-tree>
+            <a-empty v-else description="暂无菜单" />
+          </a-spin>
+        </section>
+
+        <section class="detail-panel">
+          <div class="panel-head">
+            <strong>{{ panelTitle }}</strong>
+            <a-button
+              v-if="selected && editorMode === 'view'"
+              size="small"
+              @click="startEdit(selected)"
+            >
+              编辑
+            </a-button>
+          </div>
 
         <a-descriptions v-if="selected && editorMode === 'view'" bordered :column="2">
           <a-descriptions-item label="菜单名称">
@@ -173,7 +180,8 @@
         </a-form>
 
         <a-empty v-else description="请从左侧选择一个菜单节点" />
-      </section>
+        </section>
+      </div>
     </div>
   </div>
 </template>
@@ -183,6 +191,8 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { message, Modal } from "ant-design-vue";
 import http from "../../../api/http";
 import { loadDictionary, toSelectOptions } from "../../../api/dictionary";
+import ListSectionHeader from "../../../components/list/ListSectionHeader.vue";
+import SearchPanel from "../../../components/list/SearchPanel.vue";
 
 interface MenuNode {
   id: string;
@@ -389,15 +399,16 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.query-card {
-  background: #fff;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+.menu-manager-card {
+  border-top: 3px solid var(--tradn-primary);
+}
+
+.menu-search-control {
+  width: 210px;
 }
 
 .type-select {
-  width: 150px;
+  width: 100%;
 }
 
 .menu-layout {
@@ -409,7 +420,8 @@ onMounted(async () => {
 .tree-panel,
 .detail-panel {
   min-height: 580px;
-  background: #fff;
+  background: #fdfefe;
+  border: 1px solid var(--tradn-border);
   border-radius: 8px;
   padding: 16px;
 }

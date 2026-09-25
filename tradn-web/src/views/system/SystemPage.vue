@@ -1,48 +1,18 @@
 <template>
   <div class="page system-page">
-    <div class="page-header">
-      <div>
-        <div class="page-title">{{ config.title }}</div>
-        <div class="muted">{{ config.description }}</div>
-      </div>
-    </div>
-    <div class="page-actions" v-if="section !== 'menus'">
-      <a-space>
-        <a-button v-if="section === 'users'" type="primary" @click="openUserEditor">
-          新增账号
-        </a-button>
-        <template v-if="section === 'roles'">
-          <a-button type="primary" @click="openRoleEditor()">新增角色</a-button>
-        </template>
-        <template v-if="section === 'dictionaries'">
-          <a-button @click="openTypeManager">字典类型管理</a-button>
-          <a-button type="primary" @click="openDictionaryItem()">新增字典项</a-button>
-        </template>
-        <a-button
-          v-if="section === 'parameters'"
-          type="primary"
-          @click="openParameterEditor()"
-        >
-          新增参数
-        </a-button>
-        <a-button v-if="section === 'jobs'" type="primary" @click="openJobEditor()">
-          新增调度
-        </a-button>
-        <a-button v-if="section === 'caches'" type="primary" @click="openCacheEditor()">
-          新增缓存
-        </a-button>
-      </a-space>
-    </div>
-
     <MenuManager v-if="section === 'menus'" />
 
     <template v-else>
-      <div class="query-card">
-        <a-form layout="inline">
-          <a-form-item
-            v-for="field in queryFields"
-            :key="field.name"
-            :label="field.label"
+      <SearchPanel
+        :collapsible="queryFields.length > 3"
+        @search="search"
+        @reset="resetQuery"
+      >
+        <div v-for="field in queryFields" :key="field.name" class="search-field">
+          <span class="search-field-label">{{ field.label }}</span>
+          <div
+            class="system-search-control"
+            :class="{ 'system-search-control-range': field.type === 'range' }"
           >
             <a-input
               v-if="field.type === 'input'"
@@ -57,7 +27,6 @@
               allow-clear
               :placeholder="`全部${field.label}`"
               :options="field.options"
-              style="width: 160px"
             />
             <a-range-picker
               v-else-if="field.type === 'range'"
@@ -65,18 +34,42 @@
               show-time
               value-format="YYYY-MM-DDTHH:mm:ss"
             />
-          </a-form-item>
-          <a-form-item>
-            <a-space>
-              <a-button type="primary" @click="search">查询</a-button>
-              <a-button @click="resetQuery">重置</a-button>
-            </a-space>
-          </a-form-item>
-        </a-form>
-      </div>
+          </div>
+        </div>
+      </SearchPanel>
 
-      <div class="content-card">
-        <a-table
+      <div class="content-card system-list-card">
+        <ListSectionHeader :title="config.title" :subtitle="config.description">
+          <template #actions>
+            <a-space wrap>
+              <a-button v-if="section === 'users'" type="primary" @click="openUserEditor">
+                新增账号
+              </a-button>
+              <a-button v-if="section === 'roles'" type="primary" @click="openRoleEditor()">
+                新增角色
+              </a-button>
+              <template v-if="section === 'dictionaries'">
+                <a-button @click="openTypeManager">字典类型管理</a-button>
+                <a-button type="primary" @click="openDictionaryItem()">新增字典项</a-button>
+              </template>
+              <a-button
+                v-if="section === 'parameters'"
+                type="primary"
+                @click="openParameterEditor()"
+              >
+                新增参数
+              </a-button>
+              <a-button v-if="section === 'jobs'" type="primary" @click="openJobEditor()">
+                新增调度
+              </a-button>
+              <a-button v-if="section === 'caches'" type="primary" @click="openCacheEditor()">
+                新增缓存
+              </a-button>
+            </a-space>
+          </template>
+        </ListSectionHeader>
+
+        <StandardTable
           :data-source="rows"
           :columns="columns"
           :loading="loading"
@@ -196,7 +189,7 @@
               </a-space>
             </template>
           </template>
-        </a-table>
+        </StandardTable>
       </div>
     </template>
 
@@ -515,6 +508,9 @@ import {
   toSelectOptions,
 } from "../../api/dictionary";
 import { formatBoolean, formatDateTime } from "../../utils/format";
+import ListSectionHeader from "../../components/list/ListSectionHeader.vue";
+import SearchPanel from "../../components/list/SearchPanel.vue";
+import StandardTable from "../../components/list/StandardTable.vue";
 import MenuManager from "./components/MenuManager.vue";
 
 interface QueryField {
@@ -1342,11 +1338,20 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.query-card {
-  background: #fff;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+.system-list-card {
+  border-top: 3px solid var(--tradn-primary);
+}
+
+.system-search-control {
+  width: 190px;
+}
+
+.system-search-control :deep(.ant-picker) {
+  width: 100%;
+}
+
+.system-search-control-range {
+  width: 310px;
 }
 
 .authorization-grid {
