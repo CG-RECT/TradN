@@ -123,7 +123,7 @@ if ($Containers.Count -gt 0) {
     foreach ($container in $Containers) {
         # 仅启动明确列出的已有容器，不新建数据库，也不修改挂载和端口映射。
         $running = & $docker inspect --format '{{.State.Running}}' $container 2>$null
-        if ($LASTEXITCODE -ne 0) { throw "Container not found: $container. Configure -Containers for this machine." }
+        if ($LASTEXITCODE -ne 0) { throw "Container not found: $container. Run install-local-infra.cmd once, or configure -Containers for this machine." }
         if ($running -ne 'true') {
             & $docker start $container | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "Could not start container: $container" }
