@@ -64,15 +64,44 @@
             </button>
           </article>
 
+          <div
+            v-for="group in layoutGroups"
+            :key="`group-${group.date}`"
+            class="timeline-day-group"
+            :class="[`side-${group.side}`, { 'group-ordering': reorderingDate === group.date }]"
+            :style="groupStyle(group)"
+            aria-hidden="true"
+          />
+
           <template v-for="card in layoutEntries" :key="card.key">
             <article
               class="timeline-entry-card"
-              :class="[`side-${card.side}`, `row-${card.row}`, `entry-${card.entry.entryType.toLowerCase()}`]"
+              :class="[
+                `side-${card.side}`,
+                `row-${card.row}`,
+                `entry-${card.entry.entryType.toLowerCase()}`,
+                { 'entry-dragging': draggingEntryId === String(card.entry.id) },
+              ]"
               :style="entryStyle(card)"
               tabindex="0"
+              @dragover="handleEntryDragOver($event, card)"
+              @drop.prevent.stop
               @click.stop="handleEntryClick(card.entry)"
               @keydown.enter.stop="handleEntryClick(card.entry)"
             >
+              <button
+                v-if="!card.entry.legacy"
+                class="entry-drag-handle"
+                type="button"
+                draggable="true"
+                title="拖动调整当天备注顺序"
+                aria-label="拖动调整当天备注顺序"
+                @click.stop
+                @dragstart.stop="startEntryDrag($event, card)"
+                @dragend.stop="finishEntryDrag"
+              >
+                ⠿
+              </button>
               <button
                 v-if="!card.entry.legacy"
                 class="entry-delete-button"
@@ -217,11 +246,15 @@ const MAX_ZOOM = 1.6;
 const ZOOM_STEP = 0.15;
 const GAP = 14;
 const CARD_GAP = 12;
+const ROW_GAP = 32;
 const TOP_PADDING = 28;
 const DATE_LABEL_GAP = 62;
 const BOTTOM_CONTENT_GAP = 36;
 const BOTTOM_PADDING = 24;
 const EMPTY_HINT_HEIGHT = 112;
+const GROUP_PADDING_X = 14;
+const GROUP_PADDING_Y = 12;
+const GROUP_ANCHOR_WIDTH = 44;
 
 const shell = ref<HTMLElement>();
 const viewportWidth = ref(1200);
@@ -239,6 +272,9 @@ const noteViewerLoading = ref(false);
 const noteViewer = ref<any>(null);
 const zoom = ref(1);
 const dragging = ref(false);
+const draggingEntryId = ref("");
+const reorderingDate = ref("");
+const reorderSaving = ref(false);
 const current = reactive<any>({ date: "", data: null });
 const editor = reactive<any>({
   entryId: null,
@@ -264,6 +300,8 @@ let dragStartX = 0;
 let dragStartScrollLeft = 0;
 let dragMoved = false;
 let positioning = false;
+let reorderSnapshot: TimelineEntry[] | null = null;
+let reorderOriginalIds: string[] = [];
 
 const baseCellWidth = computed(() =>
   Math.max(280, (viewportWidth.value - 40 - GAP * 6) / 7),
@@ -282,10 +320,32 @@ const days = computed(() => {
 });
 
 type TimelineSide = "top" | "bottom";
+type TimelineEntry = {
+  id: string | number;
+  entryType: "TEXT" | "IMAGE" | "NOTE";
+  content?: string;
+  noteId?: string | number;
+  fileId?: string | number;
+  legacy?: boolean;
+  file?: {
+    thumbnailUrl?: string;
+    originalUrl?: string;
+    image_width?: number;
+    imageWidth?: number;
+    image_height?: number;
+    imageHeight?: number;
+  };
+  note?: {
+    id?: string | number;
+    title?: string;
+    summary?: string;
+  };
+};
+
 type LayoutCard = {
   key: string;
   date: string;
-  entry: any;
+  entry: TimelineEntry;
   side: TimelineSide;
   row: number;
   left: number;
@@ -293,8 +353,18 @@ type LayoutCard = {
   height: number;
 };
 
+type LayoutGroup = {
+  date: string;
+  side: TimelineSide;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  anchorX: number;
+};
+
 type GroupCard = {
-  entry: any;
+  entry: TimelineEntry;
   row: number;
   offset: number;
   rowWidth: number;
@@ -319,9 +389,8 @@ const layoutPlan = computed(() => {
   const cards: LayoutCard[] = [];
 
   days.value.forEach((day, dayIndex) => {
-    const entries = [...(day.data?.entries || [])].sort((a: any, b: any) =>
-      String(a.created_at || "").localeCompare(String(b.created_at || "")),
-    );
+    // 接口已经按 sort_no 返回；保留该顺序才能让人工拖动结果在刷新后稳定复现。
+    const entries = [...(day.data?.entries || [])];
     if (!entries.length) return;
 
     const groupCards = arrangeDayEntries(entries);
@@ -340,7 +409,10 @@ const layoutPlan = computed(() => {
         const overlap = groupCards.reduce((total, card) => {
           const row = card.row + rowOffset;
           const rowLeft = center - card.rowWidth / 2 + card.offset;
-          return total + Math.max(0, sideEnds[side][row] + CARD_GAP - rowLeft);
+          return total + Math.max(
+            0,
+            sideEnds[side][row] + CARD_GAP + GROUP_PADDING_X * 2 - rowLeft,
+          );
         }, 0);
         candidates.push({
           side,
@@ -366,7 +438,7 @@ const layoutPlan = computed(() => {
       const intendedLeft = center - card.rowWidth / 2 + card.offset;
       return Math.max(
         shift,
-        sideEnds[selected.side][row] + CARD_GAP - intendedLeft,
+        sideEnds[selected.side][row] + CARD_GAP + GROUP_PADDING_X * 2 - intendedLeft,
         -intendedLeft,
       );
     }, 0);
@@ -403,7 +475,7 @@ const layoutPlan = computed(() => {
     hasEmptyDay ? EMPTY_HINT_HEIGHT : 0,
   );
   const height =
-    trackY + BOTTOM_CONTENT_GAP + contentBelowTrack + BOTTOM_PADDING;
+    trackY + BOTTOM_CONTENT_GAP + contentBelowTrack + BOTTOM_PADDING + GROUP_PADDING_Y;
 
   return {
     cards,
@@ -417,11 +489,46 @@ const layoutPlan = computed(() => {
 });
 
 const layoutEntries = computed(() => layoutPlan.value.cards);
+const layoutGroups = computed<LayoutGroup[]>(() => {
+  const dayIndexMap = new Map(days.value.map((day, index) => [day.date, index]));
+  const cardsByDate = new Map<string, LayoutCard[]>();
+  layoutEntries.value.forEach((card) => {
+    const cards = cardsByDate.get(card.date) || [];
+    cards.push(card);
+    cardsByDate.set(card.date, cards);
+  });
+
+  return Array.from(cardsByDate.entries()).map(([date, cards]) => {
+    const dayIndex = dayIndexMap.get(date) || 0;
+    const anchorX = dayIndex * stepWidth.value + cellWidth.value / 2;
+    const cardLeft = Math.min(...cards.map((card) => card.left));
+    const cardRight = Math.max(...cards.map((card) => card.left + card.width));
+    const cardTop = Math.min(...cards.map((card) => entryTop(card)));
+    const cardBottom = Math.max(
+      ...cards.map((card) => entryTop(card) + card.height),
+    );
+    const left = Math.max(
+      0,
+      Math.min(cardLeft - GROUP_PADDING_X, anchorX - GROUP_ANCHOR_WIDTH / 2),
+    );
+    const right = Math.max(cardRight + GROUP_PADDING_X, anchorX + GROUP_ANCHOR_WIDTH / 2);
+    return {
+      date,
+      side: cards[0].side,
+      left,
+      top: cardTop - GROUP_PADDING_Y,
+      width: right - left,
+      height: cardBottom - cardTop + GROUP_PADDING_Y * 2,
+      anchorX,
+    };
+  });
+});
 const gridWidth = computed(() =>
   Math.max(
     1200,
     days.value.length * stepWidth.value,
     layoutPlan.value.maxRight + 24,
+    ...layoutGroups.value.map((group) => group.left + group.width + 24),
   ),
 );
 const gridStyle = computed(() => ({
@@ -430,7 +537,7 @@ const gridStyle = computed(() => ({
   "--track-y": `${layoutPlan.value.trackY}px`,
 }));
 
-function arrangeDayEntries(entries: any[]): GroupCard[] {
+function arrangeDayEntries(entries: TimelineEntry[]): GroupCard[] {
   const rowWidths = [0, 0, 0];
   const maxRowWidth = cellWidth.value * 1.85;
   return entries.map((entry) => {
@@ -455,17 +562,17 @@ function usedRowCount(heights: number[]) {
 
 function rowsHeight(heights: number[], count: number) {
   return heights.slice(0, count).reduce((sum, height) => sum + height, 0) +
-    Math.max(0, count - 1) * CARD_GAP;
+    Math.max(0, count - 1) * ROW_GAP;
 }
 
-function cardWidth(entry: any) {
+function cardWidth(entry: TimelineEntry) {
   if (entry.entryType === "IMAGE") return imageCardSize(entry).width;
   const length = String(entry.content || entry.note?.title || "").length;
   const desired = 240 + length * 4;
   return Math.min(cellWidth.value * 2.4, Math.max(cellWidth.value * 0.86, desired));
 }
 
-function cardHeight(entry: any) {
+function cardHeight(entry: TimelineEntry) {
   if (entry.entryType === "IMAGE") return imageCardSize(entry).height;
   const length = String(entry.content || entry.note?.summary || entry.note?.title || "").length;
   const base = entry.entryType === "NOTE" ? 58 : 48;
@@ -473,7 +580,7 @@ function cardHeight(entry: any) {
 }
 
 /** 保留图片原始宽高比，并把超宽图、竖图约束在适合浏览的卡片范围内。 */
-function imageCardSize(entry: any) {
+function imageCardSize(entry: TimelineEntry) {
   const file = entry.file || {};
   const imageWidth = Number(file.image_width || file.imageWidth || 16);
   const imageHeight = Number(file.image_height || file.imageHeight || 9);
@@ -490,16 +597,35 @@ function imageCardSize(entry: any) {
 }
 
 function entryStyle(card: LayoutCard) {
+  return {
+    left: `${card.left}px`,
+    width: `${card.width}px`,
+    height: `${card.height}px`,
+    top: `${entryTop(card)}px`,
+  };
+}
+
+function entryTop(card: LayoutCard) {
   const heights = layoutPlan.value.rowHeights[card.side];
   const precedingHeight = heights
     .slice(0, card.row)
     .reduce((sum, height) => sum + height, 0);
   const top = card.side === "top"
     ? layoutPlan.value.trackY - DATE_LABEL_GAP - precedingHeight -
-      card.row * CARD_GAP - card.height
+      card.row * ROW_GAP - card.height
     : layoutPlan.value.trackY + BOTTOM_CONTENT_GAP + precedingHeight +
-      card.row * CARD_GAP;
-  return { left: `${card.left}px`, width: `${card.width}px`, height: `${card.height}px`, top: `${top}px` };
+      card.row * ROW_GAP;
+  return top;
+}
+
+function groupStyle(group: LayoutGroup) {
+  return {
+    left: `${group.left}px`,
+    top: `${group.top}px`,
+    width: `${group.width}px`,
+    height: `${group.height}px`,
+    "--group-tail-left": `${group.anchorX - group.left}px`,
+  };
 }
 
 function dayColumnStyle(index: number) {
@@ -665,6 +791,105 @@ function openEditor(date: string) {
   });
   uploadList.value = [];
   editorOpen.value = true;
+}
+
+function persistedEntryIds(entries: TimelineEntry[]) {
+  return entries
+    .filter((entry) => !entry.legacy)
+    .map((entry) => String(entry.id));
+}
+
+function findTimelineRecord(date: string) {
+  return records.value.find((item) => item.timeline.timelineDate === date);
+}
+
+/**
+ * 只有拖动手柄会进入排序状态，卡片其他区域仍交给时间线做横向拖动或内容查看。
+ */
+function startEntryDrag(event: DragEvent, card: LayoutCard) {
+  if (card.entry.legacy || reorderSaving.value) {
+    event.preventDefault();
+    return;
+  }
+  const record = findTimelineRecord(card.date);
+  if (!record?.entries?.length) {
+    event.preventDefault();
+    return;
+  }
+  reorderSnapshot = [...record.entries];
+  reorderOriginalIds = persistedEntryIds(record.entries);
+  draggingEntryId.value = String(card.entry.id);
+  reorderingDate.value = card.date;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(card.entry.id));
+    const cardElement = (event.currentTarget as HTMLElement | null)?.closest(
+      ".timeline-entry-card",
+    );
+    if (cardElement instanceof HTMLElement) {
+      event.dataTransfer.setDragImage(cardElement, 24, 20);
+    }
+  }
+}
+
+function handleEntryDragOver(event: DragEvent, target: LayoutCard) {
+  if (
+    !draggingEntryId.value ||
+    target.entry.legacy ||
+    target.date !== reorderingDate.value ||
+    String(target.entry.id) === draggingEntryId.value
+  ) {
+    return;
+  }
+  const record = findTimelineRecord(target.date);
+  if (!record?.entries?.length) return;
+  const entries = [...record.entries];
+  const fromIndex = entries.findIndex(
+    (entry) => String(entry.id) === draggingEntryId.value,
+  );
+  const targetIndex = entries.findIndex(
+    (entry) => String(entry.id) === String(target.entry.id),
+  );
+  if (fromIndex < 0 || targetIndex < 0) return;
+
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  const moved = entries.splice(fromIndex, 1)[0];
+  entries.splice(targetIndex, 0, moved);
+  record.entries = entries;
+  records.value = [...records.value];
+}
+
+async function finishEntryDrag() {
+  const date = reorderingDate.value;
+  const snapshot = reorderSnapshot;
+  const record = date ? findTimelineRecord(date) : null;
+  const entryIds = record?.entries ? persistedEntryIds(record.entries) : [];
+  draggingEntryId.value = "";
+  reorderSnapshot = null;
+
+  if (!date || !record || entryIds.join(",") === reorderOriginalIds.join(",")) {
+    reorderingDate.value = "";
+    reorderOriginalIds = [];
+    return;
+  }
+
+  reorderSaving.value = true;
+  try {
+    await http.put(`/timelines/${date}/entries/order`, { entryIds });
+    message.success("当天备注顺序已保存");
+  } catch {
+    if (snapshot) {
+      record.entries = snapshot;
+      records.value = [...records.value];
+    }
+    message.error("备注排序保存失败，已恢复原顺序");
+    await fetchRange(dayjs(date), dayjs(date));
+  } finally {
+    reorderingDate.value = "";
+    reorderOriginalIds = [];
+    reorderSaving.value = false;
+  }
 }
 
 function handleEntryClick(entry: any) {
@@ -994,6 +1219,44 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   font-size: 12px;
 }
 
+.timeline-day-group {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid #e7cf83;
+  border-radius: 14px;
+  background: #fffdf3e8;
+  box-shadow: 0 5px 18px #8a6b1814;
+  pointer-events: none;
+  transition: left 0.15s ease, top 0.15s ease, width 0.15s ease, height 0.15s ease;
+}
+
+.timeline-day-group::after {
+  content: "";
+  position: absolute;
+  left: var(--group-tail-left);
+  width: 18px;
+  height: 18px;
+  background: #fffdf3;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.timeline-day-group.side-top::after {
+  bottom: -10px;
+  border-right: 1px solid #e7cf83;
+  border-bottom: 1px solid #e7cf83;
+}
+
+.timeline-day-group.side-bottom::after {
+  top: -10px;
+  border-top: 1px solid #e7cf83;
+  border-left: 1px solid #e7cf83;
+}
+
+.timeline-day-group.group-ordering {
+  border-color: #d4a72c;
+  box-shadow: 0 7px 22px #8a6b1826;
+}
+
 .timeline-entry-card {
   position: absolute;
   z-index: 3;
@@ -1013,6 +1276,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   text-align: left;
   cursor: pointer;
   outline: none;
+  transition: left 0.15s ease, top 0.15s ease, box-shadow 0.15s ease;
 }
 
 .timeline-entry-card:hover {
@@ -1045,9 +1309,40 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   box-shadow: 0 1px 4px #00000020;
 }
 
+.entry-drag-handle {
+  position: absolute;
+  z-index: 3;
+  top: 5px;
+  left: 6px;
+  display: none;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: #fff;
+  color: #8c8c8c;
+  font-size: 18px;
+  line-height: 20px;
+  cursor: grab;
+  box-shadow: 0 1px 4px #00000020;
+}
+
+.entry-drag-handle:active {
+  cursor: grabbing;
+}
+
 .timeline-entry-card:hover .entry-delete-button,
-.entry-delete-button:focus-visible {
+.entry-delete-button:focus-visible,
+.timeline-entry-card:hover .entry-drag-handle,
+.entry-drag-handle:focus-visible {
   display: block;
+}
+
+.timeline-entry-card.entry-dragging {
+  z-index: 7;
+  opacity: 0.42;
+  border-style: dashed;
 }
 
 .entry-text { padding: 8px 10px; justify-content: flex-start; gap: 2px; background: #f8fbff; }

@@ -11,6 +11,7 @@ import com.tradn.timeline.mapper.DailyTimelineMapper;
 import com.tradn.timeline.model.DailyTimeline;
 import com.tradn.timeline.model.TimelineCommand;
 import com.tradn.timeline.model.TimelineEntryCommand;
+import com.tradn.timeline.model.TimelineEntryOrderCommand;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -126,6 +127,50 @@ public class TimelineService {
                         SecurityUtils.userId());
         if (changed == 0) throw new BizException(404, "文字备注不存在或类型不匹配");
         return entryView(entryId);
+    }
+
+    /**
+     * 保存同一天备注的人工顺序。请求必须包含当天全部有效卡片，避免过期页面把新卡片排除在外。
+     */
+    @Transactional
+    public void reorderEntries(LocalDate date, TimelineEntryOrderCommand command) {
+        DailyTimeline row = find(date);
+        if (row == null) throw new BizException(404, "当日时间线不存在");
+        List<Long> currentIds =
+                jdbc.queryForList(
+                        "SELECT id FROM timeline_entry WHERE timeline_id=? AND user_id=? AND deleted=0 ORDER BY sort_no,created_at",
+                        Long.class,
+                        row.getId(),
+                        SecurityUtils.userId());
+        List<Long> requestedIds = command == null ? null : command.getEntryIds();
+        if (!isCompleteEntryOrder(currentIds, requestedIds)) {
+            throw new BizException(409, "备注数据已变化，请刷新后重新排序");
+        }
+        for (int index = 0; index < requestedIds.size(); index++) {
+            int changed =
+                    jdbc.update(
+                            "UPDATE timeline_entry SET sort_no=?,updated_by=?,version=version+1 WHERE id=? AND timeline_id=? AND user_id=? AND deleted=0",
+                            index,
+                            SecurityUtils.userId(),
+                            requestedIds.get(index),
+                            row.getId(),
+                            SecurityUtils.userId());
+            if (changed != 1) {
+                throw new BizException(409, "备注数据已变化，请刷新后重新排序");
+            }
+        }
+    }
+
+    /** 校验排序请求没有遗漏、重复或混入其他日期的卡片。 */
+    static boolean isCompleteEntryOrder(List<Long> currentIds, List<Long> requestedIds) {
+        if (currentIds == null
+                || requestedIds == null
+                || currentIds.size() != requestedIds.size()) {
+            return false;
+        }
+        return new HashSet<Long>(currentIds).size() == currentIds.size()
+                && new HashSet<Long>(requestedIds).size() == requestedIds.size()
+                && new HashSet<Long>(currentIds).equals(new HashSet<Long>(requestedIds));
     }
 
     /** 上传图片并创建图片备注卡片，图片本体仍由 MinIO 文件服务管理。 */

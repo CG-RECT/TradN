@@ -4,6 +4,7 @@ import com.tradn.common.api.ApiResponse;
 import com.tradn.timeline.model.DailyTimeline;
 import com.tradn.timeline.model.TimelineCommand;
 import com.tradn.timeline.model.TimelineEntryCommand;
+import com.tradn.timeline.model.TimelineEntryOrderCommand;
 import com.tradn.timeline.service.TimelineService;
 import java.time.LocalDate;
 import java.util.*;
@@ -53,6 +54,16 @@ public class TimelineController {
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestBody TimelineEntryCommand command) {
         return ApiResponse.ok(service.addEntry(date, command));
+    }
+
+    /** 保存同一天全部备注卡片的人工排列顺序。 */
+    @PutMapping("/{date}/entries/order")
+    @PreAuthorize("hasAuthority('timeline:daily:update')")
+    public ApiResponse<Void> reorderEntries(
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestBody TimelineEntryOrderCommand command) {
+        service.reorderEntries(date, command);
+        return ApiResponse.ok();
     }
 
     /** 修改已有文字备注卡片。图片和笔记卡片通过原业务模块维护。 */

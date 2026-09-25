@@ -19,4 +19,20 @@ class TimelineServiceTest {
         assertFalse(TimelineService.hasNewLinkedNote(previous, Collections.<Long>emptyList()));
         assertFalse(TimelineService.hasNewLinkedNote(previous, null));
     }
+
+    @Test
+    void reorderMustContainEveryEntryExactlyOnce() {
+        assertTrue(
+                TimelineService.isCompleteEntryOrder(
+                        Arrays.asList(10L, 11L, 12L), Arrays.asList(12L, 10L, 11L)));
+        assertFalse(
+                TimelineService.isCompleteEntryOrder(
+                        Arrays.asList(10L, 11L, 12L), Arrays.asList(10L, 11L)));
+        assertFalse(
+                TimelineService.isCompleteEntryOrder(
+                        Arrays.asList(10L, 11L, 12L), Arrays.asList(10L, 10L, 12L)));
+        assertFalse(
+                TimelineService.isCompleteEntryOrder(
+                        Arrays.asList(10L, 11L, 12L), Arrays.asList(10L, 11L, 99L)));
+    }
 }
